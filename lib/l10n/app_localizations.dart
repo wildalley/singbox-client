@@ -1,0 +1,1121 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart' as intl;
+
+import 'app_localizations_en.dart';
+import 'app_localizations_zh.dart';
+
+// ignore_for_file: type=lint
+
+/// Callers can lookup localized strings with an instance of L10n
+/// returned by `L10n.of(context)`.
+///
+/// Applications need to include `L10n.delegate()` in their app's
+/// `localizationDelegates` list, and the locales they support in the app's
+/// `supportedLocales` list. For example:
+///
+/// ```dart
+/// import 'l10n/app_localizations.dart';
+///
+/// return MaterialApp(
+///   localizationsDelegates: L10n.localizationsDelegates,
+///   supportedLocales: L10n.supportedLocales,
+///   home: MyApplicationHome(),
+/// );
+/// ```
+///
+/// ## Update pubspec.yaml
+///
+/// Please make sure to update your pubspec.yaml to include the following
+/// packages:
+///
+/// ```yaml
+/// dependencies:
+///   # Internationalization support.
+///   flutter_localizations:
+///     sdk: flutter
+///   intl: any # Use the pinned version from flutter_localizations
+///
+///   # Rest of dependencies
+/// ```
+///
+/// ## iOS Applications
+///
+/// iOS applications define key application metadata, including supported
+/// locales, in an Info.plist file that is built into the application bundle.
+/// To configure the locales supported by your app, you’ll need to edit this
+/// file.
+///
+/// First, open your project’s ios/Runner.xcworkspace Xcode workspace file.
+/// Then, in the Project Navigator, open the Info.plist file under the Runner
+/// project’s Runner folder.
+///
+/// Next, select the Information Property List item, select Add Item from the
+/// Editor menu, then select Localizations from the pop-up menu.
+///
+/// Select and expand the newly-created Localizations item then, for each
+/// locale your application supports, add a new item and select the locale
+/// you wish to add from the pop-up menu in the Value field. This list should
+/// be consistent with the languages listed in the L10n.supportedLocales
+/// property.
+abstract class L10n {
+  L10n(String locale)
+      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+
+  final String localeName;
+
+  static L10n of(BuildContext context) {
+    return Localizations.of<L10n>(context, L10n)!;
+  }
+
+  static const LocalizationsDelegate<L10n> delegate = _L10nDelegate();
+
+  /// A list of this localizations delegate along with the default localizations
+  /// delegates.
+  ///
+  /// Returns a list of localizations delegates containing this delegate along with
+  /// GlobalMaterialLocalizations.delegate, GlobalCupertinoLocalizations.delegate,
+  /// and GlobalWidgetsLocalizations.delegate.
+  ///
+  /// Additional delegates can be added by appending to this list in
+  /// MaterialApp. This list does not have to be used at all if a custom list
+  /// of delegates is preferred or required.
+  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
+      <LocalizationsDelegate<dynamic>>[
+    delegate,
+    GlobalMaterialLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+  ];
+
+  /// A list of this localizations delegate's supported locales.
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('en'),
+    Locale('zh')
+  ];
+
+  /// No description provided for @appTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'SingBox Client'**
+  String get appTitle;
+
+  /// No description provided for @appShortName.
+  ///
+  /// In en, this message translates to:
+  /// **'SingBox'**
+  String get appShortName;
+
+  /// No description provided for @actionCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get actionCancel;
+
+  /// No description provided for @actionSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get actionSave;
+
+  /// No description provided for @actionCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get actionCopy;
+
+  /// No description provided for @actionRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get actionRemove;
+
+  /// No description provided for @actionImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get actionImport;
+
+  /// No description provided for @actionUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get actionUpdate;
+
+  /// No description provided for @actionRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get actionRefresh;
+
+  /// No description provided for @actionConnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get actionConnect;
+
+  /// No description provided for @actionDisconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
+  String get actionDisconnect;
+
+  /// No description provided for @actionTestLatency.
+  ///
+  /// In en, this message translates to:
+  /// **'Test latency'**
+  String get actionTestLatency;
+
+  /// No description provided for @navHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get navHome;
+
+  /// No description provided for @navNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Nodes'**
+  String get navNodes;
+
+  /// No description provided for @navRules.
+  ///
+  /// In en, this message translates to:
+  /// **'Rules'**
+  String get navRules;
+
+  /// No description provided for @navLogs.
+  ///
+  /// In en, this message translates to:
+  /// **'Logs'**
+  String get navLogs;
+
+  /// No description provided for @navSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get navSettings;
+
+  /// No description provided for @railOverview.
+  ///
+  /// In en, this message translates to:
+  /// **'Overview'**
+  String get railOverview;
+
+  /// No description provided for @stageConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get stageConnected;
+
+  /// No description provided for @stageDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected'**
+  String get stageDisconnected;
+
+  /// No description provided for @stageConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get stageConnecting;
+
+  /// No description provided for @stageDisconnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnecting'**
+  String get stageDisconnecting;
+
+  /// No description provided for @stageAwaitingPermission.
+  ///
+  /// In en, this message translates to:
+  /// **'Awaiting permission'**
+  String get stageAwaitingPermission;
+
+  /// No description provided for @stageFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get stageFailed;
+
+  /// No description provided for @greetingMorning.
+  ///
+  /// In en, this message translates to:
+  /// **'Good morning'**
+  String get greetingMorning;
+
+  /// No description provided for @greetingAfternoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Good afternoon'**
+  String get greetingAfternoon;
+
+  /// No description provided for @greetingEvening.
+  ///
+  /// In en, this message translates to:
+  /// **'Good evening'**
+  String get greetingEvening;
+
+  /// No description provided for @greetingNight.
+  ///
+  /// In en, this message translates to:
+  /// **'Good night'**
+  String get greetingNight;
+
+  /// No description provided for @homeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your connection at a glance'**
+  String get homeSubtitle;
+
+  /// No description provided for @homeReadyToConnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready to connect'**
+  String get homeReadyToConnect;
+
+  /// No description provided for @homeProtected.
+  ///
+  /// In en, this message translates to:
+  /// **'Protected'**
+  String get homeProtected;
+
+  /// No description provided for @homeProtectedFor.
+  ///
+  /// In en, this message translates to:
+  /// **'Protected · {uptime}'**
+  String homeProtectedFor(String uptime);
+
+  /// No description provided for @homeCheckTheLogs.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the logs'**
+  String get homeCheckTheLogs;
+
+  /// No description provided for @homeNoNodesYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No nodes yet'**
+  String get homeNoNodesYet;
+
+  /// No description provided for @homeAddNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Add nodes'**
+  String get homeAddNodes;
+
+  /// No description provided for @homeImportPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Import a subscription or paste share links to get started.'**
+  String get homeImportPrompt;
+
+  /// No description provided for @homeLiveTraffic.
+  ///
+  /// In en, this message translates to:
+  /// **'Live traffic'**
+  String get homeLiveTraffic;
+
+  /// No description provided for @homeDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get homeDownload;
+
+  /// No description provided for @homeUpload.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
+  String get homeUpload;
+
+  /// No description provided for @homeActiveNode.
+  ///
+  /// In en, this message translates to:
+  /// **'Active node'**
+  String get homeActiveNode;
+
+  /// No description provided for @homeNoNodeSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'No node selected'**
+  String get homeNoNodeSelected;
+
+  /// No description provided for @homeChangeNode.
+  ///
+  /// In en, this message translates to:
+  /// **'Change node'**
+  String get homeChangeNode;
+
+  /// No description provided for @homeSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Session'**
+  String get homeSession;
+
+  /// No description provided for @homeTotals.
+  ///
+  /// In en, this message translates to:
+  /// **'Totals'**
+  String get homeTotals;
+
+  /// No description provided for @homeDownloaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloaded'**
+  String get homeDownloaded;
+
+  /// No description provided for @homeUploaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded'**
+  String get homeUploaded;
+
+  /// No description provided for @homeConnections.
+  ///
+  /// In en, this message translates to:
+  /// **'Connections'**
+  String get homeConnections;
+
+  /// No description provided for @nodesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nodes'**
+  String get nodesTitle;
+
+  /// No description provided for @nodesSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search nodes'**
+  String get nodesSearch;
+
+  /// No description provided for @nodesFilterAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get nodesFilterAll;
+
+  /// No description provided for @nodesFilterFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get nodesFilterFavorites;
+
+  /// No description provided for @nodesFilterFast.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast'**
+  String get nodesFilterFast;
+
+  /// No description provided for @nodesGroupManual.
+  ///
+  /// In en, this message translates to:
+  /// **'Manual'**
+  String get nodesGroupManual;
+
+  /// No description provided for @nodesNoMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches'**
+  String get nodesNoMatches;
+
+  /// No description provided for @nodesNoMatchesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'No nodes match the current search or filter.'**
+  String get nodesNoMatchesBody;
+
+  /// No description provided for @nodesNothingImported.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing imported yet'**
+  String get nodesNothingImported;
+
+  /// No description provided for @nodesImportBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Import a subscription URL, paste share links, or load a sing-box config file.'**
+  String get nodesImportBody;
+
+  /// No description provided for @nodesImportTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Import nodes'**
+  String get nodesImportTitle;
+
+  /// No description provided for @nodesRemoveSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove source?'**
+  String get nodesRemoveSource;
+
+  /// No description provided for @nodesRemoveSourceBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This removes {name} and its {count, plural, =1{1 node} other{{count} nodes}} from this device.'**
+  String nodesRemoveSourceBody(String name, int count);
+
+  /// No description provided for @nodesCountLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 node} other{{count} nodes}}'**
+  String nodesCountLabel(int count);
+
+  /// No description provided for @nodesUntested.
+  ///
+  /// In en, this message translates to:
+  /// **'Untested'**
+  String get nodesUntested;
+
+  /// No description provided for @nodesUnreachable.
+  ///
+  /// In en, this message translates to:
+  /// **'Unreachable'**
+  String get nodesUnreachable;
+
+  /// No description provided for @rulesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rules'**
+  String get rulesTitle;
+
+  /// No description provided for @rulesHowRouted.
+  ///
+  /// In en, this message translates to:
+  /// **'How traffic is routed'**
+  String get rulesHowRouted;
+
+  /// No description provided for @rulesRoutingMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Routing mode'**
+  String get rulesRoutingMode;
+
+  /// No description provided for @rulesModeGlobal.
+  ///
+  /// In en, this message translates to:
+  /// **'Global'**
+  String get rulesModeGlobal;
+
+  /// No description provided for @rulesModeRule.
+  ///
+  /// In en, this message translates to:
+  /// **'Rule'**
+  String get rulesModeRule;
+
+  /// No description provided for @rulesModeDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct'**
+  String get rulesModeDirect;
+
+  /// No description provided for @rulesModeGlobalBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything goes through the proxy.'**
+  String get rulesModeGlobalBody;
+
+  /// No description provided for @rulesModeRuleBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Mainland China sites and IPs stay direct, everything else is proxied.'**
+  String get rulesModeRuleBody;
+
+  /// No description provided for @rulesModeDirectBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing is proxied. The tunnel stays up but traffic goes out directly.'**
+  String get rulesModeDirectBody;
+
+  /// No description provided for @rulesActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active rules'**
+  String get rulesActive;
+
+  /// No description provided for @rulesDnsInterception.
+  ///
+  /// In en, this message translates to:
+  /// **'DNS interception'**
+  String get rulesDnsInterception;
+
+  /// No description provided for @rulesDnsInterceptionBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Queries are answered by the built-in resolver'**
+  String get rulesDnsInterceptionBody;
+
+  /// No description provided for @rulesPrivateAddresses.
+  ///
+  /// In en, this message translates to:
+  /// **'Private addresses'**
+  String get rulesPrivateAddresses;
+
+  /// No description provided for @rulesPrivateAddressesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'LAN and loopback stay direct'**
+  String get rulesPrivateAddressesBody;
+
+  /// No description provided for @rulesChinaDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'China direct'**
+  String get rulesChinaDirect;
+
+  /// No description provided for @rulesOnlyInRuleMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Only applies in Rule mode'**
+  String get rulesOnlyInRuleMode;
+
+  /// No description provided for @rulesAdsAndTrackers.
+  ///
+  /// In en, this message translates to:
+  /// **'Ads and trackers'**
+  String get rulesAdsAndTrackers;
+
+  /// No description provided for @rulesRejectedViaGeosite.
+  ///
+  /// In en, this message translates to:
+  /// **'Rejected via geosite'**
+  String get rulesRejectedViaGeosite;
+
+  /// No description provided for @rulesNotFiltered.
+  ///
+  /// In en, this message translates to:
+  /// **'Not filtered'**
+  String get rulesNotFiltered;
+
+  /// No description provided for @rulesStateOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get rulesStateOff;
+
+  /// No description provided for @rulesStateOn.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get rulesStateOn;
+
+  /// No description provided for @rulesChinaDirectBody.
+  ///
+  /// In en, this message translates to:
+  /// **'geosite-cn and geoip-cn bypass the proxy'**
+  String get rulesChinaDirectBody;
+
+  /// No description provided for @rulesSetsNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Rule sets are downloaded from the sing-geosite mirror on first use and refreshed weekly.'**
+  String get rulesSetsNote;
+
+  /// No description provided for @logsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Logs'**
+  String get logsTitle;
+
+  /// No description provided for @logsFollowing.
+  ///
+  /// In en, this message translates to:
+  /// **'Following'**
+  String get logsFollowing;
+
+  /// No description provided for @logsPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get logsPaused;
+
+  /// No description provided for @logsCopyAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy all'**
+  String get logsCopyAll;
+
+  /// No description provided for @logsCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Logs copied'**
+  String get logsCopied;
+
+  /// No description provided for @logsNoneYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No logs yet'**
+  String get logsNoneYet;
+
+  /// No description provided for @logsNothingLogged.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing logged yet'**
+  String get logsNothingLogged;
+
+  /// No description provided for @logsConnectToSee.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect the tunnel to see runtime output from sing-box.'**
+  String get logsConnectToSee;
+
+  /// No description provided for @logsEntryCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 entry} other{{count} entries}}'**
+  String logsEntryCount(int count);
+
+  /// No description provided for @settingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settingsTitle;
+
+  /// No description provided for @settingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tune your connection'**
+  String get settingsSubtitle;
+
+  /// No description provided for @settingsSubscriptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscriptions'**
+  String get settingsSubscriptions;
+
+  /// No description provided for @settingsAddSubscription.
+  ///
+  /// In en, this message translates to:
+  /// **'Add subscription or nodes'**
+  String get settingsAddSubscription;
+
+  /// No description provided for @settingsAddSubscriptionBody.
+  ///
+  /// In en, this message translates to:
+  /// **'URL, share links, or a sing-box config'**
+  String get settingsAddSubscriptionBody;
+
+  /// No description provided for @settingsProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy'**
+  String get settingsProxy;
+
+  /// No description provided for @settingsTunStack.
+  ///
+  /// In en, this message translates to:
+  /// **'TUN stack'**
+  String get settingsTunStack;
+
+  /// No description provided for @settingsSystemProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'System HTTP proxy'**
+  String get settingsSystemProxy;
+
+  /// No description provided for @settingsSystemProxyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Also expose a proxy on the tunnel for apps that ignore the VPN'**
+  String get settingsSystemProxyBody;
+
+  /// No description provided for @settingsStrictRoute.
+  ///
+  /// In en, this message translates to:
+  /// **'Strict route'**
+  String get settingsStrictRoute;
+
+  /// No description provided for @settingsStrictRouteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Block traffic that tries to escape the tunnel'**
+  String get settingsStrictRouteBody;
+
+  /// No description provided for @settingsNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Network'**
+  String get settingsNetwork;
+
+  /// No description provided for @settingsRemoteDns.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote DNS'**
+  String get settingsRemoteDns;
+
+  /// No description provided for @settingsDirectDns.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct DNS'**
+  String get settingsDirectDns;
+
+  /// No description provided for @settingsDnsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Accepts https://, tls://, quic://, h3://, udp:// and tcp:// URLs.'**
+  String get settingsDnsHint;
+
+  /// No description provided for @settingsFakeIp.
+  ///
+  /// In en, this message translates to:
+  /// **'FakeIP'**
+  String get settingsFakeIp;
+
+  /// No description provided for @settingsFakeIpBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Faster lookups; breaks apps that need real addresses'**
+  String get settingsFakeIpBody;
+
+  /// No description provided for @settingsIpv6.
+  ///
+  /// In en, this message translates to:
+  /// **'IPv6'**
+  String get settingsIpv6;
+
+  /// No description provided for @settingsIpv4Only.
+  ///
+  /// In en, this message translates to:
+  /// **'IPv4 only'**
+  String get settingsIpv4Only;
+
+  /// No description provided for @settingsPreferIpv4.
+  ///
+  /// In en, this message translates to:
+  /// **'Prefer IPv4, allow IPv6'**
+  String get settingsPreferIpv4;
+
+  /// No description provided for @settingsMtu.
+  ///
+  /// In en, this message translates to:
+  /// **'MTU'**
+  String get settingsMtu;
+
+  /// No description provided for @settingsAppearance.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get settingsAppearance;
+
+  /// No description provided for @settingsTheme.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme'**
+  String get settingsTheme;
+
+  /// No description provided for @settingsThemeSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get settingsThemeSystem;
+
+  /// No description provided for @settingsThemeLight.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get settingsThemeLight;
+
+  /// No description provided for @settingsThemeDark.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get settingsThemeDark;
+
+  /// No description provided for @settingsLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguage;
+
+  /// No description provided for @settingsLanguageSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get settingsLanguageSystem;
+
+  /// No description provided for @settingsDiagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostics'**
+  String get settingsDiagnostics;
+
+  /// No description provided for @settingsRuntimeLogs.
+  ///
+  /// In en, this message translates to:
+  /// **'Runtime logs'**
+  String get settingsRuntimeLogs;
+
+  /// No description provided for @settingsEntriesBuffered.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 entry buffered} other{{count} entries buffered}}'**
+  String settingsEntriesBuffered(int count);
+
+  /// No description provided for @settingsGeneratedConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Generated config'**
+  String get settingsGeneratedConfig;
+
+  /// No description provided for @settingsGeneratedConfigBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Inspect what is sent to sing-box'**
+  String get settingsGeneratedConfigBody;
+
+  /// No description provided for @settingsConfigCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Config copied'**
+  String get settingsConfigCopied;
+
+  /// No description provided for @settingsContainsCredentials.
+  ///
+  /// In en, this message translates to:
+  /// **'Contains credentials. Do not share.'**
+  String get settingsContainsCredentials;
+
+  /// No description provided for @settingsLogLevel.
+  ///
+  /// In en, this message translates to:
+  /// **'Log level'**
+  String get settingsLogLevel;
+
+  /// No description provided for @settingsAbout.
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get settingsAbout;
+
+  /// No description provided for @settingsAppVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'App version'**
+  String get settingsAppVersion;
+
+  /// No description provided for @settingsCore.
+  ///
+  /// In en, this message translates to:
+  /// **'sing-box core'**
+  String get settingsCore;
+
+  /// No description provided for @settingsChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'checking…'**
+  String get settingsChecking;
+
+  /// No description provided for @settingsRemoveSubscription.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {name}?'**
+  String settingsRemoveSubscription(String name);
+
+  /// No description provided for @settingsRemoveSubscriptionBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This deletes its {count, plural, =1{1 node} other{{count} nodes}} from this device.'**
+  String settingsRemoveSubscriptionBody(int count);
+
+  /// No description provided for @importTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Import nodes'**
+  String get importTitle;
+
+  /// No description provided for @importNameOptional.
+  ///
+  /// In en, this message translates to:
+  /// **'Name (optional)'**
+  String get importNameOptional;
+
+  /// No description provided for @importPasteFromClipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste from clipboard'**
+  String get importPasteFromClipboard;
+
+  /// No description provided for @importPaste.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste'**
+  String get importPaste;
+
+  /// No description provided for @importFile.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get importFile;
+
+  /// No description provided for @importInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Importing…'**
+  String get importInProgress;
+
+  /// No description provided for @importHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscription URL, share links (vless, vmess, trojan, ss, hysteria2, tuic), or a sing-box JSON config.'**
+  String get importHint;
+
+  /// No description provided for @noticeNeedNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a node or subscription first'**
+  String get noticeNeedNodes;
+
+  /// No description provided for @noticePermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'VPN permission denied'**
+  String get noticePermissionDenied;
+
+  /// No description provided for @noticeSwitchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch failed: {detail}'**
+  String noticeSwitchFailed(String detail);
+
+  /// No description provided for @noticeReloadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Reload failed: {detail}'**
+  String noticeReloadFailed(String detail);
+
+  /// No description provided for @noticeNoUrlToRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} has no URL to refresh'**
+  String noticeNoUrlToRefresh(String name);
+
+  /// No description provided for @noticeSubscriptionUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}: {count, plural, =1{1 node} other{{count} nodes}}'**
+  String noticeSubscriptionUpdated(String name, int count);
+
+  /// No description provided for @noticeNodesImported.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 node imported} other{{count} nodes imported}}'**
+  String noticeNodesImported(int count);
+
+  /// No description provided for @noticeNodesImportedSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 node imported} other{{count} nodes imported}}, {skipped} skipped'**
+  String noticeNodesImportedSkipped(int count, int skipped);
+
+  /// No description provided for @importedDefaultName.
+  ///
+  /// In en, this message translates to:
+  /// **'Imported'**
+  String get importedDefaultName;
+
+  /// No description provided for @platformUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'The {platform} runtime is not implemented yet. Config rendering and node management still work.'**
+  String platformUnsupported(String platform);
+
+  /// No description provided for @nodesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'{nodes} endpoints · {sources} sources'**
+  String nodesSubtitle(int nodes, int sources);
+
+  /// No description provided for @nodesUpdatedAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'updated {ago}'**
+  String nodesUpdatedAgo(String ago);
+
+  /// No description provided for @nodesDaysLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'{days} days left'**
+  String nodesDaysLeft(int days);
+
+  /// No description provided for @nodesExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'expired'**
+  String get nodesExpired;
+
+  /// No description provided for @agoJustNow.
+  ///
+  /// In en, this message translates to:
+  /// **'just now'**
+  String get agoJustNow;
+
+  /// No description provided for @agoMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes}m ago'**
+  String agoMinutes(int minutes);
+
+  /// No description provided for @agoHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{hours}h ago'**
+  String agoHours(int hours);
+
+  /// No description provided for @agoDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{days}d ago'**
+  String agoDays(int days);
+
+  /// No description provided for @latencyFail.
+  ///
+  /// In en, this message translates to:
+  /// **'fail'**
+  String get latencyFail;
+
+  /// No description provided for @latencyUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'—'**
+  String get latencyUnknown;
+
+  /// No description provided for @logsNewestLast.
+  ///
+  /// In en, this message translates to:
+  /// **'newest last'**
+  String get logsNewestLast;
+}
+
+class _L10nDelegate extends LocalizationsDelegate<L10n> {
+  const _L10nDelegate();
+
+  @override
+  Future<L10n> load(Locale locale) {
+    return SynchronousFuture<L10n>(lookupL10n(locale));
+  }
+
+  @override
+  bool isSupported(Locale locale) =>
+      <String>['en', 'zh'].contains(locale.languageCode);
+
+  @override
+  bool shouldReload(_L10nDelegate old) => false;
+}
+
+L10n lookupL10n(Locale locale) {
+  // Lookup logic when only language code is specified.
+  switch (locale.languageCode) {
+    case 'en':
+      return L10nEn();
+    case 'zh':
+      return L10nZh();
+  }
+
+  throw FlutterError(
+      'L10n.delegate failed to load unsupported locale "$locale". This is likely '
+      'an issue with the localizations generation tool. Please file an issue '
+      'on GitHub with a reproducible sample app and the gen-l10n configuration '
+      'that was used.');
+}

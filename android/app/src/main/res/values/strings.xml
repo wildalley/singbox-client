@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SingBox Client</string>
+    <string name="notification_channel_name">Tunnel status</string>
+    <string name="notification_channel_description">Shows whether the proxy tunnel is running.</string>
+    <string name="notification_connecting">Connecting…</string>
+    <string name="notification_connected">Connected</string>
+    <string name="notification_error">Connection failed</string>
+    <string name="notification_action_stop">Stop</string>
+</resources>

@@ -1,0 +1,30 @@
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+build/
+.packages
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# Local toolchain paths, machine specific
+android/local.properties
+local.properties
+
+# Signing material. Never commit these.
+*.jks
+*.keystore
+android/key.properties
+
+# Native sing-box binding: 22 MB, reproducible from source.
+# Build it with scripts/build-libbox.sh; see README.
+android/app/libs/*.aar
+
+# OS noise
+.DS_Store
+Thumbs.db

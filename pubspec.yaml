@@ -1,0 +1,35 @@
+name: singbox_client
+description: A premium cross-platform sing-box client UI starter.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.47.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  http: ^1.5.0
+  shared_preferences: ^2.5.3
+
+flutter:
+  uses-material-design: true
+  generate: true
+
+  fonts:
+    # Variable fonts: one file covers the whole weight range.
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/SpaceGrotesk.ttf
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter

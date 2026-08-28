@@ -1,0 +1,320 @@
+{
+  "@@locale": "en",
+  "appTitle": "SingBox Client",
+  "appShortName": "SingBox",
+  "actionCancel": "Cancel",
+  "actionSave": "Save",
+  "actionCopy": "Copy",
+  "actionRemove": "Remove",
+  "actionImport": "Import",
+  "actionUpdate": "Update",
+  "actionRefresh": "Refresh",
+  "actionConnect": "Connect",
+  "actionDisconnect": "Disconnect",
+  "actionTestLatency": "Test latency",
+  "navHome": "Home",
+  "navNodes": "Nodes",
+  "navRules": "Rules",
+  "navLogs": "Logs",
+  "navSettings": "Settings",
+  "railOverview": "Overview",
+  "stageConnected": "Connected",
+  "stageDisconnected": "Disconnected",
+  "stageConnecting": "Connecting",
+  "stageDisconnecting": "Disconnecting",
+  "stageAwaitingPermission": "Awaiting permission",
+  "stageFailed": "Failed",
+  "greetingMorning": "Good morning",
+  "greetingAfternoon": "Good afternoon",
+  "greetingEvening": "Good evening",
+  "greetingNight": "Good night",
+  "homeSubtitle": "Your connection at a glance",
+  "homeReadyToConnect": "Ready to connect",
+  "homeProtected": "Protected",
+  "homeProtectedFor": "Protected · {uptime}",
+  "@homeProtectedFor": {
+    "placeholders": {
+      "uptime": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCheckTheLogs": "Check the logs",
+  "homeNoNodesYet": "No nodes yet",
+  "homeAddNodes": "Add nodes",
+  "homeImportPrompt": "Import a subscription or paste share links to get started.",
+  "homeLiveTraffic": "Live traffic",
+  "homeDownload": "Download",
+  "homeUpload": "Upload",
+  "homeActiveNode": "Active node",
+  "homeNoNodeSelected": "No node selected",
+  "homeChangeNode": "Change node",
+  "homeSession": "Session",
+  "homeTotals": "Totals",
+  "homeDownloaded": "Downloaded",
+  "homeUploaded": "Uploaded",
+  "homeConnections": "Connections",
+  "nodesTitle": "Nodes",
+  "nodesSearch": "Search nodes",
+  "nodesFilterAll": "All",
+  "nodesFilterFavorites": "Favorites",
+  "nodesFilterFast": "Fast",
+  "nodesGroupManual": "Manual",
+  "nodesNoMatches": "No matches",
+  "nodesNoMatchesBody": "No nodes match the current search or filter.",
+  "nodesNothingImported": "Nothing imported yet",
+  "nodesImportBody": "Import a subscription URL, paste share links, or load a sing-box config file.",
+  "nodesImportTitle": "Import nodes",
+  "nodesRemoveSource": "Remove source?",
+  "nodesRemoveSourceBody": "This removes {name} and its {count, plural, =1{1 node} other{{count} nodes}} from this device.",
+  "@nodesRemoveSourceBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "nodesCountLabel": "{count, plural, =1{1 node} other{{count} nodes}}",
+  "@nodesCountLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "nodesUntested": "Untested",
+  "nodesUnreachable": "Unreachable",
+  "rulesTitle": "Rules",
+  "rulesHowRouted": "How traffic is routed",
+  "rulesRoutingMode": "Routing mode",
+  "rulesModeGlobal": "Global",
+  "rulesModeRule": "Rule",
+  "rulesModeDirect": "Direct",
+  "rulesModeGlobalBody": "Everything goes through the proxy.",
+  "rulesModeRuleBody": "Mainland China sites and IPs stay direct, everything else is proxied.",
+  "rulesModeDirectBody": "Nothing is proxied. The tunnel stays up but traffic goes out directly.",
+  "rulesActive": "Active rules",
+  "rulesDnsInterception": "DNS interception",
+  "rulesDnsInterceptionBody": "Queries are answered by the built-in resolver",
+  "rulesPrivateAddresses": "Private addresses",
+  "rulesPrivateAddressesBody": "LAN and loopback stay direct",
+  "rulesChinaDirect": "China direct",
+  "rulesOnlyInRuleMode": "Only applies in Rule mode",
+  "rulesAdsAndTrackers": "Ads and trackers",
+  "rulesRejectedViaGeosite": "Rejected via geosite",
+  "rulesNotFiltered": "Not filtered",
+  "rulesStateOff": "Off",
+  "rulesStateOn": "On",
+  "rulesChinaDirectBody": "geosite-cn and geoip-cn bypass the proxy",
+  "rulesSetsNote": "Rule sets are downloaded from the sing-geosite mirror on first use and refreshed weekly.",
+  "logsTitle": "Logs",
+  "logsFollowing": "Following",
+  "logsPaused": "Paused",
+  "logsCopyAll": "Copy all",
+  "logsCopied": "Logs copied",
+  "logsNoneYet": "No logs yet",
+  "logsNothingLogged": "Nothing logged yet",
+  "logsConnectToSee": "Connect the tunnel to see runtime output from sing-box.",
+  "logsEntryCount": "{count, plural, =1{1 entry} other{{count} entries}}",
+  "@logsEntryCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsTitle": "Settings",
+  "settingsSubtitle": "Tune your connection",
+  "settingsSubscriptions": "Subscriptions",
+  "settingsAddSubscription": "Add subscription or nodes",
+  "settingsAddSubscriptionBody": "URL, share links, or a sing-box config",
+  "settingsProxy": "Proxy",
+  "settingsTunStack": "TUN stack",
+  "settingsSystemProxy": "System HTTP proxy",
+  "settingsSystemProxyBody": "Also expose a proxy on the tunnel for apps that ignore the VPN",
+  "settingsStrictRoute": "Strict route",
+  "settingsStrictRouteBody": "Block traffic that tries to escape the tunnel",
+  "settingsNetwork": "Network",
+  "settingsRemoteDns": "Remote DNS",
+  "settingsDirectDns": "Direct DNS",
+  "settingsDnsHint": "Accepts https://, tls://, quic://, h3://, udp:// and tcp:// URLs.",
+  "settingsFakeIp": "FakeIP",
+  "settingsFakeIpBody": "Faster lookups; breaks apps that need real addresses",
+  "settingsIpv6": "IPv6",
+  "settingsIpv4Only": "IPv4 only",
+  "settingsPreferIpv4": "Prefer IPv4, allow IPv6",
+  "settingsMtu": "MTU",
+  "settingsAppearance": "Appearance",
+  "settingsTheme": "Theme",
+  "settingsThemeSystem": "System",
+  "settingsThemeLight": "Light",
+  "settingsThemeDark": "Dark",
+  "settingsLanguage": "Language",
+  "settingsLanguageSystem": "System default",
+  "settingsDiagnostics": "Diagnostics",
+  "settingsRuntimeLogs": "Runtime logs",
+  "settingsEntriesBuffered": "{count, plural, =1{1 entry buffered} other{{count} entries buffered}}",
+  "@settingsEntriesBuffered": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsGeneratedConfig": "Generated config",
+  "settingsGeneratedConfigBody": "Inspect what is sent to sing-box",
+  "settingsConfigCopied": "Config copied",
+  "settingsContainsCredentials": "Contains credentials. Do not share.",
+  "settingsLogLevel": "Log level",
+  "settingsAbout": "About",
+  "settingsAppVersion": "App version",
+  "settingsCore": "sing-box core",
+  "settingsChecking": "checking…",
+  "settingsRemoveSubscription": "Remove {name}?",
+  "@settingsRemoveSubscription": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsRemoveSubscriptionBody": "This deletes its {count, plural, =1{1 node} other{{count} nodes}} from this device.",
+  "@settingsRemoveSubscriptionBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "importTitle": "Import nodes",
+  "importNameOptional": "Name (optional)",
+  "importPasteFromClipboard": "Paste from clipboard",
+  "importPaste": "Paste",
+  "importFile": "File",
+  "importInProgress": "Importing…",
+  "importHint": "Subscription URL, share links (vless, vmess, trojan, ss, hysteria2, tuic), or a sing-box JSON config.",
+  "noticeNeedNodes": "Add a node or subscription first",
+  "noticePermissionDenied": "VPN permission denied",
+  "noticeSwitchFailed": "Switch failed: {detail}",
+  "@noticeSwitchFailed": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "noticeReloadFailed": "Reload failed: {detail}",
+  "@noticeReloadFailed": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "noticeNoUrlToRefresh": "{name} has no URL to refresh",
+  "@noticeNoUrlToRefresh": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "noticeSubscriptionUpdated": "{name}: {count, plural, =1{1 node} other{{count} nodes}}",
+  "@noticeSubscriptionUpdated": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noticeNodesImported": "{count, plural, =1{1 node imported} other{{count} nodes imported}}",
+  "@noticeNodesImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noticeNodesImportedSkipped": "{count, plural, =1{1 node imported} other{{count} nodes imported}}, {skipped} skipped",
+  "@noticeNodesImportedSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      }
+    }
+  },
+  "importedDefaultName": "Imported",
+  "platformUnsupported": "The {platform} runtime is not implemented yet. Config rendering and node management still work.",
+  "@platformUnsupported": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "nodesSubtitle": "{nodes} endpoints · {sources} sources",
+  "@nodesSubtitle": {
+    "placeholders": {
+      "nodes": {
+        "type": "int"
+      },
+      "sources": {
+        "type": "int"
+      }
+    }
+  },
+  "nodesUpdatedAgo": "updated {ago}",
+  "@nodesUpdatedAgo": {
+    "placeholders": {
+      "ago": {
+        "type": "String"
+      }
+    }
+  },
+  "nodesDaysLeft": "{days} days left",
+  "@nodesDaysLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "nodesExpired": "expired",
+  "agoJustNow": "just now",
+  "agoMinutes": "{minutes}m ago",
+  "@agoMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "agoHours": "{hours}h ago",
+  "@agoHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "agoDays": "{days}d ago",
+  "@agoDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "latencyFail": "fail",
+  "latencyUnknown": "—",
+  "logsNewestLast": "newest last"
+}
