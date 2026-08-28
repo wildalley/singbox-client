@@ -17,3 +17,16 @@ Generated with Google Stitch MCP on 2026-08-28.
 - `Settings — Obsidian Signal` — refreshed mobile configuration (`c719162dee81486997e4bdd87122f41b`)
 
 Preview exports (`home-disconnected.png`, `home-connected.png`, `nodes.png`, `settings.png`, and `desktop-overview.png`) are kept in this directory for implementation review. The Flutter code intentionally recreates the design using native widgets and CustomPaint rather than embedding generated HTML.
+
+## Synapse V4 (successor)
+
+Obsidian Signal is the design the app ships today. **Synapse V4** is the next
+visual direction: same information architecture, denser and more instrumented
+presentation.
+
+- Reference sheet: [`synapse-v4.png`](synapse-v4.png)
+- Implementation plan: [`synapse-v4.md`](synapse-v4.md)
+
+The plan supersedes the Obsidian Signal tokens where the two disagree. It is
+written to be applied in stages, so the two can coexist while the migration is
+in progress.
