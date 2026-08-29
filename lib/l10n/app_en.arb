@@ -54,6 +54,26 @@
   "homeDownloaded": "Downloaded",
   "homeUploaded": "Uploaded",
   "homeConnections": "Connections",
+  "homeMemory": "Memory",
+  "homeLatency": "Latency",
+  "homeAvailableNodes": "Available nodes",
+  "homeAvailableOf": "{available} / {total}",
+  "@homeAvailableOf": {
+    "description": "Nodes that answered a latency probe, out of the total imported.",
+    "placeholders": {
+      "available": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "homeUptime": "Uptime",
+  "homeOverview": "Overview",
+  "homeTrafficFlow": "Traffic flow",
+  "homeLastMinute": "Last 60s",
+  "homeUntestedNodes": "Not tested yet",
   "nodesTitle": "Nodes",
   "nodesSearch": "Search nodes",
   "nodesFilterAll": "All",
@@ -108,7 +128,29 @@
   "rulesNotFiltered": "Not filtered",
   "rulesStateOff": "Off",
   "rulesStateOn": "On",
+  "rulesBadgeDirect": "DIRECT",
+  "@rulesBadgeDirect": {
+    "description": "Badge on a rule row: matching traffic leaves without the proxy. Mirrors the sing-box outbound keyword, so it stays uppercase Latin in every locale."
+  },
+  "rulesBadgeProxy": "PROXY",
+  "@rulesBadgeProxy": {
+    "description": "Badge on a rule row: matching traffic goes through the selected node. Mirrors the sing-box outbound keyword, so it stays uppercase Latin in every locale."
+  },
+  "rulesBadgeBlock": "BLOCK",
+  "@rulesBadgeBlock": {
+    "description": "Badge on a rule row: matching traffic is rejected. Mirrors the sing-box reject action, so it stays uppercase Latin in every locale."
+  },
+  "rulesBadgeDns": "DNS",
+  "@rulesBadgeDns": {
+    "description": "Badge on the DNS interception row. That rule hijacks queries to the built-in resolver rather than routing them, so it gets its own verb instead of DIRECT/PROXY/BLOCK."
+  },
   "rulesChinaDirectBody": "geosite-cn and geoip-cn bypass the proxy",
+  "rulesFallback": "Everything else",
+  "@rulesFallback": {
+    "description": "The last rule row: the config's `final` outbound, which catches traffic no earlier rule matched."
+  },
+  "rulesFallbackProxy": "Goes through the selected node",
+  "rulesFallbackDirect": "Leaves directly; the tunnel stays up",
   "rulesSetsNote": "Rule sets are downloaded from the sing-geosite mirror on first use and refreshed weekly.",
   "logsTitle": "Logs",
   "logsFollowing": "Following",

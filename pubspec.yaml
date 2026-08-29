@@ -28,6 +28,15 @@ flutter:
     - family: SpaceGrotesk
       fonts:
         - asset: assets/fonts/SpaceGrotesk.ttf
+    # Static faces: only the two weights monoStyle() actually asks for, to keep
+    # the bundle down. JetBrains Mono has no CJK glyphs, so mono styles keep
+    # AppFonts.cjkFallback attached.
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-Medium.ttf
+          weight: 500
 
 dev_dependencies:
   flutter_lints: ^6.0.0

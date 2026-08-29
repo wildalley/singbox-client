@@ -40,7 +40,8 @@ class ImportResult {
 
 class Importer {
   Importer({HttpClient? httpClient})
-      : _httpClient = httpClient ?? (HttpClient()..connectionTimeout = _timeout);
+      : _httpClient =
+            httpClient ?? (HttpClient()..connectionTimeout = _timeout);
 
   final HttpClient _httpClient;
 
@@ -172,14 +173,16 @@ class Importer {
     }
 
     if (response.statusCode != HttpStatus.ok) {
-      throw ImportException('Subscription returned HTTP ${response.statusCode}');
+      throw ImportException(
+          'Subscription returned HTTP ${response.statusCode}');
     }
 
     final base = _looksLikeJson(body.trim())
         ? importSingBoxConfig(body, subscriptionId: subscriptionId)
         : importShareLinks(body, subscriptionId: subscriptionId);
 
-    final info = _parseUserInfo(response.headers.value('subscription-userinfo'));
+    final info =
+        _parseUserInfo(response.headers.value('subscription-userinfo'));
     final title = _decodeHeaderTitle(response.headers.value('profile-title'));
 
     return ImportResult(
@@ -269,8 +272,7 @@ class Importer {
     );
   }
 
-  static String _outboundId(
-      String type, String server, int port, String tag) {
+  static String _outboundId(String type, String server, int port, String tag) {
     var hash = 0x811c9dc5;
     for (final unit in '$type|$server|$port|$tag'.codeUnits) {
       hash ^= unit;

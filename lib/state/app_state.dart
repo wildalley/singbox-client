@@ -84,11 +84,14 @@ class AppState extends ChangeNotifier {
     _stateSub = _controller.states.listen(_onProxyState);
     _trafficSub = _controller.traffic.listen((value) {
       _traffic = value;
+      _pushHistory(value);
       notifyListeners();
     });
     _logSub = _controller.logs.listen((entry) {
       _logs.add(entry);
-      if (_logs.length > _maxLogs) _logs.removeRange(0, _logs.length - _maxLogs);
+      if (_logs.length > _maxLogs) {
+        _logs.removeRange(0, _logs.length - _maxLogs);
+      }
       notifyListeners();
     });
 
@@ -100,6 +103,10 @@ class AppState extends ChangeNotifier {
   }
 
   static const _maxLogs = 500;
+
+  /// 60 samples at roughly one per second — the rolling window the design plan
+  /// asks for before any figure is compared against an earlier period.
+  static const _historyLength = 60;
 
   final Storage _storage;
   final ProxyController _controller;
@@ -114,6 +121,13 @@ class AppState extends ChangeNotifier {
   var _proxyState = ProxyState.disconnected;
   var _traffic = ProxyTraffic.zero;
   final _logs = <ProxyLogEntry>[];
+
+  /// Rolling per-sample history for the charts, oldest first. Lives here rather
+  /// than in the home page's State so switching tabs doesn't blank the charts.
+  final _downlinkHistory = <int>[];
+  final _uplinkHistory = <int>[];
+  final _connectionHistory = <int>[];
+  final _memoryHistory = <int>[];
 
   StreamSubscription<ProxyState>? _stateSub;
   StreamSubscription<ProxyTraffic>? _trafficSub;
@@ -137,11 +151,19 @@ class AppState extends ChangeNotifier {
   ProxyTraffic get traffic => _traffic;
   List<ProxyLogEntry> get logs => List.unmodifiable(_logs);
 
+  /// Chart series, oldest sample first. Copies: the painters diff the old and
+  /// new lists, and handing out the same instance would always look unchanged.
+  List<int> get downlinkHistory => List.of(_downlinkHistory);
+  List<int> get uplinkHistory => List.of(_uplinkHistory);
+  List<int> get connectionHistory => List.of(_connectionHistory);
+  List<int> get memoryHistory => List.of(_memoryHistory);
+
   bool get isConnected => _proxyState.isConnected;
   bool get isBusy => _busy || _proxyState.stage.isBusy;
   bool get isTestingLatency => _testingLatency;
 
-  bool isRefreshing(String subscriptionId) => _refreshing.contains(subscriptionId);
+  bool isRefreshing(String subscriptionId) =>
+      _refreshing.contains(subscriptionId);
 
   String? get selectedNodeId => _selectedNodeId;
 
@@ -208,8 +230,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> toggleConnection() =>
-      isConnected ? disconnect() : connect();
+  Future<void> toggleConnection() => isConnected ? disconnect() : connect();
 
   /// Selects [node]. While connected this switches the live selector outbound
   /// instead of restarting the tunnel.
@@ -248,7 +269,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       final trimmed = text.trim();
-      final isUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://');
+      final isUrl =
+          trimmed.startsWith('http://') || trimmed.startsWith('https://');
       final subscription = Subscription(
         id: _newId(),
         name: name?.trim().isNotEmpty == true ? name!.trim() : 'Imported',
@@ -296,7 +318,8 @@ class AppState extends ChangeNotifier {
 
   /// Re-fetches a remote subscription, replacing only its own nodes.
   Future<void> refreshSubscription(String subscriptionId) async {
-    final index = _subscriptions.indexWhere((item) => item.id == subscriptionId);
+    final index =
+        _subscriptions.indexWhere((item) => item.id == subscriptionId);
     if (index < 0) return;
     final subscription = _subscriptions[index];
     if (!subscription.isRemote) {
@@ -340,8 +363,8 @@ class AppState extends ChangeNotifier {
         count: merged.length,
       );
     } on Object catch (error) {
-      _subscriptions = [..._subscriptions]
-        ..[index] = subscription.copyWith(lastError: _short(error));
+      _subscriptions = [..._subscriptions]..[index] =
+          subscription.copyWith(lastError: _short(error));
       await _storage.writeSubscriptions(_subscriptions);
       _fail(_short(error));
     } finally {
@@ -383,7 +406,10 @@ class AppState extends ChangeNotifier {
   Future<void> toggleFavorite(String nodeId) async {
     _nodes = [
       for (final node in _nodes)
-        if (node.id == nodeId) node.copyWith(favorite: !node.favorite) else node,
+        if (node.id == nodeId)
+          node.copyWith(favorite: !node.favorite)
+        else
+          node,
     ];
     await _storage.writeNodes(_nodes);
     notifyListeners();
@@ -441,8 +467,30 @@ class AppState extends ChangeNotifier {
       _notice = AppNotice.passthrough(state.message!);
     }
     // Traffic counters are meaningless once the tunnel is down.
-    if (wasConnected && !state.isConnected) _traffic = ProxyTraffic.zero;
+    if (wasConnected && !state.isConnected) {
+      _traffic = ProxyTraffic.zero;
+      _downlinkHistory.clear();
+      _uplinkHistory.clear();
+      _connectionHistory.clear();
+      _memoryHistory.clear();
+    }
     notifyListeners();
+  }
+
+  /// Appends one traffic sample to each chart series, dropping the oldest once
+  /// the window is full.
+  void _pushHistory(ProxyTraffic value) {
+    void push(List<int> series, int sample) {
+      series.add(sample);
+      if (series.length > _historyLength) {
+        series.removeRange(0, series.length - _historyLength);
+      }
+    }
+
+    push(_downlinkHistory, value.downlink);
+    push(_uplinkHistory, value.uplink);
+    push(_connectionHistory, value.connectionsOut);
+    push(_memoryHistory, value.memory);
   }
 
   /// Merges an import result into state, replacing any nodes that share an id.
@@ -494,7 +542,8 @@ class AppState extends ChangeNotifier {
 
   /// Import/runtime errors are already redacted; keep them short for snackbars.
   static String _short(Object error) {
-    final message = error.toString().replaceFirst(RegExp(r'^\w+Exception: '), '');
+    final message =
+        error.toString().replaceFirst(RegExp(r'^\w+Exception: '), '');
     return message.length > 160 ? '${message.substring(0, 157)}…' : message;
   }
 

@@ -20,7 +20,8 @@ String noticeText(L10n l10n, AppNotice notice) {
         notice.count ?? 0,
       ),
     NoticeKind.nodesImported => (notice.skipped ?? 0) > 0
-        ? l10n.noticeNodesImportedSkipped(notice.count ?? 0, notice.skipped ?? 0)
+        ? l10n.noticeNodesImportedSkipped(
+            notice.count ?? 0, notice.skipped ?? 0)
         : l10n.noticeNodesImported(notice.count ?? 0),
     // Already-final text: an engine message or a redacted exception.
     NoticeKind.passthrough => detail,

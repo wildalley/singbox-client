@@ -152,6 +152,35 @@ class L10nZh extends L10n {
   String get homeConnections => '连接数';
 
   @override
+  String get homeMemory => '内存占用';
+
+  @override
+  String get homeLatency => '延迟';
+
+  @override
+  String get homeAvailableNodes => '可用节点';
+
+  @override
+  String homeAvailableOf(int available, int total) {
+    return '$available / $total';
+  }
+
+  @override
+  String get homeUptime => '已运行';
+
+  @override
+  String get homeOverview => '概况';
+
+  @override
+  String get homeTrafficFlow => '流量趋势';
+
+  @override
+  String get homeLastMinute => '近 60 秒';
+
+  @override
+  String get homeUntestedNodes => '尚未测速';
+
+  @override
   String get nodesTitle => '节点';
 
   @override
@@ -267,7 +296,28 @@ class L10nZh extends L10n {
   String get rulesStateOn => '开启';
 
   @override
+  String get rulesBadgeDirect => 'DIRECT';
+
+  @override
+  String get rulesBadgeProxy => 'PROXY';
+
+  @override
+  String get rulesBadgeBlock => 'BLOCK';
+
+  @override
+  String get rulesBadgeDns => 'DNS';
+
+  @override
   String get rulesChinaDirectBody => 'geosite-cn 与 geoip-cn 绕过代理';
+
+  @override
+  String get rulesFallback => '其余流量';
+
+  @override
+  String get rulesFallbackProxy => '走当前选中的节点';
+
+  @override
+  String get rulesFallbackDirect => '直接出网,隧道保持开启';
 
   @override
   String get rulesSetsNote => '规则集在首次使用时从 sing-geosite 镜像下载,每周自动更新。';

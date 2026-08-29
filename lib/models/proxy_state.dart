@@ -14,7 +14,8 @@ enum ProxyStage {
       this == ProxyStage.stopping ||
       this == ProxyStage.requestingPermission;
 
-  bool get isActive => this == ProxyStage.connected || this == ProxyStage.starting;
+  bool get isActive =>
+      this == ProxyStage.connected || this == ProxyStage.starting;
 }
 
 class ProxyState {

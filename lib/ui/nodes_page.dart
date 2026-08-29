@@ -48,8 +48,9 @@ class _NodesPageState extends State<NodesPage> {
       return switch (_filter) {
         _NodeFilter.all => true,
         // "Fast" means measured and under the amber threshold.
-        _NodeFilter.fast =>
-          node.latencyMs != null && node.latencyMs! >= 0 && node.latencyMs! < 260,
+        _NodeFilter.fast => node.latencyMs != null &&
+            node.latencyMs! >= 0 &&
+            node.latencyMs! < 260,
         _NodeFilter.favorites => node.favorite,
       };
     }).toList();
@@ -141,8 +142,9 @@ class _NodesPageState extends State<NodesPage> {
                           : palette.border,
                     ),
                     labelStyle: TextStyle(
-                      color:
-                          _filter == filter ? palette.violetSoft : palette.muted,
+                      color: _filter == filter
+                          ? palette.violetSoft
+                          : palette.muted,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -230,7 +232,10 @@ class _SubscriptionSection extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       subscription.lastError ?? _subtitle(l10n, subscription),
-                      maxLines: 1,
+                      // Three facts joined by separators do not fit one mobile
+                      // line, and clipping mid-number ("· 123 …") loses the one
+                      // part a reader is checking. Wrapping keeps all three.
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: subscription.lastError != null
@@ -333,6 +338,7 @@ class _NodeRow extends StatelessWidget {
     final palette = context.palette;
     final selected = state.selectedNodeId == node.id;
     final color = latencyColor(palette, node.latencyMs);
+    final region = node.regionCode;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
@@ -340,15 +346,16 @@ class _NodeRow extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => state.selectNode(node),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
+            duration: Motion.fast,
+            curve: Motion.curve,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: selected
                   ? palette.violet.withValues(alpha: .10)
                   : palette.surface,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(AppRadius.lg),
               border: Border.all(
                 color: selected
                     ? palette.violet.withValues(alpha: .65)
@@ -357,14 +364,27 @@ class _NodeRow extends StatelessWidget {
             ),
             child: Row(
               children: [
+                // The region code replaces the generic server icon when the name
+                // gives one away; nodes whose region we cannot read keep the
+                // icon rather than showing a guess.
                 Container(
                   width: 38,
                   height: 38,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: .10),
-                    borderRadius: BorderRadius.circular(10),
+                    color: tintFill(color),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
-                  child: Icon(Icons.dns_outlined, color: color, size: 18),
+                  child: region == null
+                      ? Icon(Icons.dns_outlined, color: color, size: 18)
+                      : Text(
+                          region,
+                          style: monoStyle(
+                            size: 13,
+                            color: color,
+                            weight: FontWeight.w700,
+                          ),
+                        ),
                 ),
                 const SizedBox(width: Gap.md),
                 Expanded(
@@ -380,12 +400,20 @@ class _NodeRow extends StatelessWidget {
                           fontSize: 13,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${node.protocol.label} · ${node.server}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: monoStyle(size: 10, color: palette.faint),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          _ProtocolTag(label: node.protocol.label),
+                          const SizedBox(width: Gap.sm),
+                          Expanded(
+                            child: Text(
+                              node.server,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: monoStyle(size: 10, color: palette.faint),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -419,6 +447,34 @@ class _NodeRow extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Protocol name as a small outlined tag.
+///
+/// Neutral on purpose: the row already spends colour on latency, and giving each
+/// protocol its own hue would compete with the reading that actually guides a
+/// choice between nodes.
+class _ProtocolTag extends StatelessWidget {
+  const _ProtocolTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        border: Border.all(color: palette.border),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style:
+            monoStyle(size: 9, color: palette.muted, weight: FontWeight.w600),
       ),
     );
   }

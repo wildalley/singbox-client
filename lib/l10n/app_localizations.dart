@@ -379,6 +379,60 @@ abstract class L10n {
   /// **'Connections'**
   String get homeConnections;
 
+  /// No description provided for @homeMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Memory'**
+  String get homeMemory;
+
+  /// No description provided for @homeLatency.
+  ///
+  /// In en, this message translates to:
+  /// **'Latency'**
+  String get homeLatency;
+
+  /// No description provided for @homeAvailableNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Available nodes'**
+  String get homeAvailableNodes;
+
+  /// Nodes that answered a latency probe, out of the total imported.
+  ///
+  /// In en, this message translates to:
+  /// **'{available} / {total}'**
+  String homeAvailableOf(int available, int total);
+
+  /// No description provided for @homeUptime.
+  ///
+  /// In en, this message translates to:
+  /// **'Uptime'**
+  String get homeUptime;
+
+  /// No description provided for @homeOverview.
+  ///
+  /// In en, this message translates to:
+  /// **'Overview'**
+  String get homeOverview;
+
+  /// No description provided for @homeTrafficFlow.
+  ///
+  /// In en, this message translates to:
+  /// **'Traffic flow'**
+  String get homeTrafficFlow;
+
+  /// No description provided for @homeLastMinute.
+  ///
+  /// In en, this message translates to:
+  /// **'Last 60s'**
+  String get homeLastMinute;
+
+  /// No description provided for @homeUntestedNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Not tested yet'**
+  String get homeUntestedNodes;
+
   /// No description provided for @nodesTitle.
   ///
   /// In en, this message translates to:
@@ -601,11 +655,53 @@ abstract class L10n {
   /// **'On'**
   String get rulesStateOn;
 
+  /// Badge on a rule row: matching traffic leaves without the proxy. Mirrors the sing-box outbound keyword, so it stays uppercase Latin in every locale.
+  ///
+  /// In en, this message translates to:
+  /// **'DIRECT'**
+  String get rulesBadgeDirect;
+
+  /// Badge on a rule row: matching traffic goes through the selected node. Mirrors the sing-box outbound keyword, so it stays uppercase Latin in every locale.
+  ///
+  /// In en, this message translates to:
+  /// **'PROXY'**
+  String get rulesBadgeProxy;
+
+  /// Badge on a rule row: matching traffic is rejected. Mirrors the sing-box reject action, so it stays uppercase Latin in every locale.
+  ///
+  /// In en, this message translates to:
+  /// **'BLOCK'**
+  String get rulesBadgeBlock;
+
+  /// Badge on the DNS interception row. That rule hijacks queries to the built-in resolver rather than routing them, so it gets its own verb instead of DIRECT/PROXY/BLOCK.
+  ///
+  /// In en, this message translates to:
+  /// **'DNS'**
+  String get rulesBadgeDns;
+
   /// No description provided for @rulesChinaDirectBody.
   ///
   /// In en, this message translates to:
   /// **'geosite-cn and geoip-cn bypass the proxy'**
   String get rulesChinaDirectBody;
+
+  /// The last rule row: the config's `final` outbound, which catches traffic no earlier rule matched.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything else'**
+  String get rulesFallback;
+
+  /// No description provided for @rulesFallbackProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Goes through the selected node'**
+  String get rulesFallbackProxy;
+
+  /// No description provided for @rulesFallbackDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Leaves directly; the tunnel stays up'**
+  String get rulesFallbackDirect;
 
   /// No description provided for @rulesSetsNote.
   ///

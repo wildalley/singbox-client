@@ -21,7 +21,11 @@ void main() {
             'server_port': 443,
             'password': 'secret',
           },
-          {'type': 'selector', 'tag': 'proxy', 'outbounds': ['Tokyo']},
+          {
+            'type': 'selector',
+            'tag': 'proxy',
+            'outbounds': ['Tokyo']
+          },
           {'type': 'direct', 'tag': 'direct'},
         ],
       });
@@ -109,7 +113,12 @@ void main() {
     test('skips outbounds missing a server or port', () {
       final config = jsonEncode({
         'outbounds': [
-          {'type': 'trojan', 'tag': 'ok', 'server': 'a.com', 'server_port': 443},
+          {
+            'type': 'trojan',
+            'tag': 'ok',
+            'server': 'a.com',
+            'server_port': 443
+          },
           {'type': 'trojan', 'tag': 'no-port', 'server': 'b.com'},
         ],
       });
@@ -176,7 +185,8 @@ void main() {
 
     test('treats share links as links, not as a subscription URL', () async {
       // An http:// share link carries credentials, so it must not be fetched.
-      final result = await importer.importText('trojan://p@a.example.com:443#T');
+      final result =
+          await importer.importText('trojan://p@a.example.com:443#T');
       expect(result.nodes.single.name, 'T');
     });
 
@@ -192,7 +202,8 @@ void main() {
     });
   });
 
-  test('ids are stable across re-imports so latency and favourites survive', () {
+  test('ids are stable across re-imports so latency and favourites survive',
+      () {
     const link = 'trojan://pass@a.example.com:443#A';
     final first = importer.importShareLinks(link).nodes.single;
     final second = importer.importShareLinks(link).nodes.single;

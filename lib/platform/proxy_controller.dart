@@ -42,9 +42,7 @@ abstract interface class ProxyController {
 /// Android implementation backed by `SingBoxVpnService` + libbox.
 class AndroidProxyController implements ProxyController {
   AndroidProxyController() {
-    _events
-        .receiveBroadcastStream()
-        .listen(_onEvent, onError: _onEventError);
+    _events.receiveBroadcastStream().listen(_onEvent, onError: _onEventError);
     // Recover state if the service outlived the Flutter engine.
     _method.invokeMethod<Map<Object?, Object?>>('status').then(
       (value) {

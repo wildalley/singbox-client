@@ -6,6 +6,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import '../models/app_settings.dart';
 import '../models/node.dart';
@@ -61,9 +62,10 @@ class ConfigBuilder {
         'interval': '3m',
         'tolerance': 50,
       });
-      final defaultTag = selectedNodeId != null && nodeTags[selectedNodeId] != null
-          ? nodeTags[selectedNodeId]!
-          : ConfigTags.auto;
+      final defaultTag =
+          selectedNodeId != null && nodeTags[selectedNodeId] != null
+              ? nodeTags[selectedNodeId]!
+              : ConfigTags.auto;
       outbounds.add({
         'type': 'selector',
         'tag': ConfigTags.proxy,
@@ -107,12 +109,22 @@ class ConfigBuilder {
         'detour': ConfigTags.proxy,
       },
       // Direct lookups for domains routed around the proxy.
+      //
+      // No `detour` here. A DNS server already dials directly by default, and
+      // sing-box treats a `direct` outbound carrying no dialer options as
+      // empty, then rejects the config at startup: "detour to an empty direct
+      // outbound makes no sense" (common/dialer/detour.go).
       {
         'type': settings.directDnsType,
         'tag': 'dns-direct',
         'server': settings.directDnsHost,
         if (settings.directDnsPath.isNotEmpty) 'path': settings.directDnsPath,
-        'detour': ConfigTags.direct,
+        // Dropping the detour turns on the resolve path for this server, and a
+        // DNS server never falls back to route.default_domain_resolver, so a
+        // hostname (rather than an IP) has to name its resolver here or start
+        // fails with "missing domain resolver for domain server address".
+        if (!_isIpLiteral(settings.directDnsHost))
+          'domain_resolver': {'server': 'dns-local'},
       },
       // System resolver, used to bootstrap the servers above.
       {
@@ -211,7 +223,8 @@ class ConfigBuilder {
     ];
 
     if (settings.blockAds) {
-      ruleSets.add(_remoteRuleSet('geosite-ads', 'geosite', 'category-ads-all'));
+      ruleSets
+          .add(_remoteRuleSet('geosite-ads', 'geosite', 'category-ads-all'));
       rules.add({
         'rule_set': ['geosite-ads'],
         'action': 'reject',
@@ -270,6 +283,17 @@ class ConfigBuilder {
         .replaceAll(RegExp(r'^_|_$'), '');
     if (cleaned.isEmpty) return 'node';
     return cleaned.length > 40 ? cleaned.substring(0, 40) : cleaned;
+  }
+
+  /// Whether [host] is a bare IP address rather than a hostname.
+  ///
+  /// Only used to decide whether a DNS server needs its own `domain_resolver`;
+  /// the IP form needs no resolution, so it must not carry one.
+  static bool _isIpLiteral(String host) {
+    final bare = host.startsWith('[') && host.endsWith(']')
+        ? host.substring(1, host.length - 1)
+        : host;
+    return InternetAddress.tryParse(bare) != null;
   }
 
   static String encode(Map<String, dynamic> config) =>

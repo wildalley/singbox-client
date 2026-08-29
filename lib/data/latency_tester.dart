@@ -48,8 +48,7 @@ class LatencyTester {
     List<ProxyNode> nodes, {
     int concurrency = 8,
   }) {
-    final controller =
-        StreamController<({String nodeId, int latencyMs})>();
+    final controller = StreamController<({String nodeId, int latencyMs})>();
     var index = 0;
     var active = 0;
     var closed = false;

@@ -72,7 +72,8 @@ void main() {
       expect(_outbound(config, ConfigTags.proxy)!['default'], ConfigTags.auto);
     });
 
-    test('with no nodes the selector points at direct so start still works', () {
+    test('with no nodes the selector points at direct so start still works',
+        () {
       final config = ConfigBuilder.build(
         nodes: const [],
         selectedNodeId: null,
@@ -219,7 +220,8 @@ void main() {
 
       final route = config['route'] as Map<String, dynamic>;
       expect(
-        (route['rules'] as List).any((item) => (item as Map)['action'] == 'reject'),
+        (route['rules'] as List)
+            .any((item) => (item as Map)['action'] == 'reject'),
         isFalse,
       );
       expect(
@@ -299,6 +301,56 @@ void main() {
       expect(remote['server'], '9.9.9.9');
       // Remote lookups must resolve on the far side of the tunnel.
       expect(remote['detour'], ConfigTags.proxy);
+    });
+
+    test('the direct server carries no detour', () {
+      // sing-box counts a `direct` outbound with no dialer options as empty and
+      // refuses to start a DNS server that detours to it: "detour to an empty
+      // direct outbound makes no sense". A DNS server already dials directly.
+      final config = ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(),
+      );
+
+      final direct = ((config['dns'] as Map)['servers'] as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .firstWhere((item) => item['tag'] == 'dns-direct');
+
+      expect(direct.containsKey('detour'), isFalse);
+    });
+
+    test('an IP direct server needs no domain resolver', () {
+      final config = ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(dnsDirect: 'https://223.5.5.5/dns-query'),
+      );
+
+      final direct = ((config['dns'] as Map)['servers'] as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .firstWhere((item) => item['tag'] == 'dns-direct');
+
+      expect(direct.containsKey('domain_resolver'), isFalse);
+    });
+
+    test('a hostname direct server names its own resolver', () {
+      // Without a detour the resolve path is live, and a DNS server does not
+      // fall back to route.default_domain_resolver, so start would fail with
+      // "missing domain resolver for domain server address".
+      final config = ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings:
+            const AppSettings(dnsDirect: 'https://dns.alidns.com/dns-query'),
+      );
+
+      final direct = ((config['dns'] as Map)['servers'] as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .firstWhere((item) => item['tag'] == 'dns-direct');
+
+      expect(direct['server'], 'dns.alidns.com');
+      expect((direct['domain_resolver'] as Map)['server'], 'dns-local');
     });
 
     test('fakeip adds its server and is reflected in the cache file', () {

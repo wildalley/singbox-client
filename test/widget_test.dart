@@ -45,8 +45,12 @@ class FakeProxyController implements ProxyController {
 
   void emitTraffic(ProxyTraffic value) => _traffic.add(value);
 
-  void emitLog(String message) =>
-      _logs.add(ProxyLogEntry(message: message, at: DateTime.now()));
+  /// Emits a log line, defaulting to now.
+  ///
+  /// [at] exists for the visual snapshots: the logs page renders each entry's
+  /// `hh:mm:ss`, so a wall-clock default would change the golden on every run.
+  void emitLog(String message, {DateTime? at}) =>
+      _logs.add(ProxyLogEntry(message: message, at: at ?? DateTime.now()));
 
   @override
   Future<bool> requestPermission() async => permissionGranted;
@@ -64,7 +68,8 @@ class FakeProxyController implements ProxyController {
   }
 
   @override
-  Future<void> reload(String configJson) async => startedConfigs.add(configJson);
+  Future<void> reload(String configJson) async =>
+      startedConfigs.add(configJson);
 
   @override
   Future<void> selectOutbound(String outboundTag) async =>

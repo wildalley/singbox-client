@@ -56,9 +56,11 @@ class _ImportSheetState extends State<_ImportSheet> {
     setState(() => _submitting = true);
     final name = _nameController.text.trim();
     if (_kind == _ImportKind.file) {
-      await widget.state.importFromFile(content, name: name.isEmpty ? null : name);
+      await widget.state
+          .importFromFile(content, name: name.isEmpty ? null : name);
     } else {
-      await widget.state.importFromText(content, name: name.isEmpty ? null : name);
+      await widget.state
+          .importFromText(content, name: name.isEmpty ? null : name);
     }
     if (!mounted) return;
     setState(() => _submitting = false);
@@ -92,7 +94,9 @@ class _ImportSheetState extends State<_ImportSheet> {
                 margin: const EdgeInsets.only(bottom: Gap.xl),
                 decoration: BoxDecoration(
                   color: palette.surface3,
-                  borderRadius: BorderRadius.circular(2),
+                  // Half the handle's height, so the smallest step still reads
+                  // as a full pill rather than a rounded rectangle.
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
                 ),
               ),
             ),

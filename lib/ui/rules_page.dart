@@ -56,10 +56,13 @@ class RulesPage extends StatelessWidget {
         ),
         const SizedBox(height: 22),
         SectionLabel(l10n.rulesActive),
+        // Each badge names the action the generated config actually takes for
+        // that rule, so the page stays honest against config_builder.dart.
         _RuleRow(
           icon: Icons.lan_outlined,
           title: l10n.rulesPrivateAddresses,
           detail: l10n.rulesPrivateAddressesBody,
+          action: _RuleAction.direct,
           enabled: true,
           locked: true,
         ),
@@ -67,6 +70,7 @@ class RulesPage extends StatelessWidget {
           icon: Icons.dns_outlined,
           title: l10n.rulesDnsInterception,
           detail: l10n.rulesDnsInterceptionBody,
+          action: _RuleAction.dns,
           enabled: true,
           locked: true,
         ),
@@ -76,6 +80,7 @@ class RulesPage extends StatelessWidget {
           detail: settings.blockAds
               ? l10n.rulesRejectedViaGeosite
               : l10n.rulesNotFiltered,
+          action: _RuleAction.block,
           enabled: settings.blockAds,
           onChanged: (value) =>
               state.applySettings(settings.copyWith(blockAds: value)),
@@ -83,8 +88,25 @@ class RulesPage extends StatelessWidget {
         _RuleRow(
           icon: Icons.public,
           title: l10n.rulesChinaDirect,
-          detail: ruleMode ? l10n.rulesChinaDirectBody : l10n.rulesOnlyInRuleMode,
+          detail:
+              ruleMode ? l10n.rulesChinaDirectBody : l10n.rulesOnlyInRuleMode,
+          action: _RuleAction.direct,
           enabled: ruleMode,
+          locked: true,
+        ),
+        // The builder's `final` outbound: whatever no rule above matched. It is
+        // the only row that can read PROXY, and it follows the mode directly —
+        // global and rule both end at the proxy, direct does not.
+        _RuleRow(
+          icon: Icons.call_split,
+          title: l10n.rulesFallback,
+          detail: settings.routingMode == RoutingMode.direct
+              ? l10n.rulesFallbackDirect
+              : l10n.rulesFallbackProxy,
+          action: settings.routingMode == RoutingMode.direct
+              ? _RuleAction.direct
+              : _RuleAction.proxy,
+          enabled: true,
           locked: true,
         ),
         const SizedBox(height: Gap.sm),
@@ -97,11 +119,20 @@ class RulesPage extends StatelessWidget {
   }
 }
 
+/// What the generated config does with traffic a rule matches.
+///
+/// These mirror `config_builder.dart`: `outbound: direct`, `outbound: proxy`,
+/// `action: reject` and `action: hijack-dns`. [dns] is not one of the routing
+/// verbs — a hijacked query is answered locally rather than routed — so it gets
+/// its own badge instead of being flattened into direct or proxy.
+enum _RuleAction { direct, proxy, block, dns }
+
 class _RuleRow extends StatelessWidget {
   const _RuleRow({
     required this.icon,
     required this.title,
     required this.detail,
+    required this.action,
     required this.enabled,
     this.onChanged,
     this.locked = false,
@@ -110,6 +141,7 @@ class _RuleRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String detail;
+  final _RuleAction action;
   final bool enabled;
   final ValueChanged<bool>? onChanged;
 
@@ -120,6 +152,13 @@ class _RuleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = L10n.of(context);
     final palette = context.palette;
+
+    final (badge, badgeColor) = switch (action) {
+      _RuleAction.direct => (l10n.rulesBadgeDirect, palette.mint),
+      _RuleAction.proxy => (l10n.rulesBadgeProxy, palette.violetSoft),
+      _RuleAction.block => (l10n.rulesBadgeBlock, palette.danger),
+      _RuleAction.dns => (l10n.rulesBadgeDns, palette.sky),
+    };
 
     return Padding(
       padding: const EdgeInsets.only(bottom: Gap.sm),
@@ -134,7 +173,7 @@ class _RuleRow extends StatelessWidget {
                 color: enabled
                     ? palette.violet.withValues(alpha: .13)
                     : palette.surface3,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: Icon(
                 icon,
@@ -159,16 +198,48 @@ class _RuleRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (locked)
-              StatusPill(
-                label: enabled ? l10n.rulesStateOn : l10n.rulesStateOff,
-                color: enabled ? palette.mint : palette.faint,
-                compact: true,
-              )
-            else
+            // The badge carries the state as well as the action: dimmed means
+            // the rule is not in the config right now. Colour alone would not
+            // say that, so the state is spelled out for screen readers.
+            Semantics(
+              label:
+                  '$badge · ${enabled ? l10n.rulesStateOn : l10n.rulesStateOff}',
+              child: _ActionBadge(
+                label: badge,
+                color: enabled ? badgeColor : palette.faint,
+              ),
+            ),
+            if (!locked) ...[
+              const SizedBox(width: Gap.sm),
               Switch(value: enabled, onChanged: onChanged),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Uppercase routing verb, drawn in the mono face so it reads as the config
+/// keyword it comes from rather than as prose.
+class _ActionBadge extends StatelessWidget {
+  const _ActionBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 5),
+      decoration: BoxDecoration(
+        color: tintFill(color),
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        border: Border.all(color: color.withValues(alpha: .22)),
+      ),
+      child: Text(
+        label,
+        style: monoStyle(color: color, size: 10, weight: FontWeight.w600),
       ),
     );
   }

@@ -20,8 +20,12 @@ android {
         targetSdk = flutter.targetSdkVersion
 
         ndk {
-            // libs/libbox.aar is built for arm64 only. Without this filter the
-            // other ABI splits would ship without libbox.so and crash on start.
+            // libs/libbox.aar is built for arm64 only, so anything else would
+            // ship without libbox.so. This only constrains libraries AGP itself
+            // packages, though — Flutter's libflutter.so/libapp.so arrive as a
+            // Maven dependency and ignore it, so a plain `flutter build apk`
+            // still produces armeabi-v7a and x86_64 splits that crash on start.
+            // Pass `--target-platform android-arm64` to keep them out; see README.
             abiFilters += "arm64-v8a"
         }
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION

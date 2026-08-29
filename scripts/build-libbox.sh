@@ -102,9 +102,20 @@ go install "github.com/sagernet/gomobile/cmd/gobind@$GOMOBILE_VERSION"
 
 # --------------------------------------------------------------------- build
 
-# Build tags copied from sing-box's cmd/internal/build_libbox (the main,
-# non-legacy variant). Keep them in sync when bumping SINGBOX_TAG.
-TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_naive_outbound"
+# Build tags from sing-box's cmd/internal/build_libbox, minus
+# with_naive_outbound.
+#
+# That tag pulls in sagernet/cronet-go, whose cgo layer needs a prebuilt Cronet
+# static library that the Go module does not vendor — its lib/ directory ships
+# empty, so `#include <cronet_c.h>` resolves but every symbol comes back
+# undefined and cgo fails with "did not produce error". Upstream builds a second
+# "legacy" variant with exactly this tag filtered out, so dropping it is their
+# own supported configuration, not a hack.
+#
+# The cost is the naive outbound protocol, which this app cannot express:
+# NodeProtocol (lib/models/node.dart) has no naive member, and nothing in lib/
+# references it. Add the tag back — and vendor Cronet — only if that changes.
+TAGS="with_gvisor,with_quic,with_wireguard,with_utls"
 TAGS="$TAGS,with_clash_api,badlinkname,tfogo_checklinkname0,with_tailscale"
 TAGS="$TAGS,ts_omit_logtail,ts_omit_ssh,ts_omit_drive,ts_omit_taildrop"
 TAGS="$TAGS,ts_omit_webclient,ts_omit_doctor,ts_omit_capture,ts_omit_kube"
@@ -135,7 +146,13 @@ echo "built $OUT"
 ls -la "$OUT"
 
 # Guard against the mistake that produces a crash-on-launch APK: an .aar with
-# fewer ABIs than the app ships. app/build.gradle.kts pins abiFilters to
-# arm64-v8a to match the default here.
+# fewer ABIs than the app ships.
+#
+# app/build.gradle.kts pins abiFilters to arm64-v8a, but that only constrains
+# what the NDK compiles — Flutter's own libapp.so and libflutter.so arrive as
+# Maven artifacts and ignore it, so a plain `flutter build apk` still emits
+# armeabi-v7a and x86_64 folders with no libbox.so in them. Build with
+# `--target-platform android-arm64` (see README) to keep the APK to the one ABI
+# this aar covers.
 echo "ABIs in the .aar:"
 unzip -l "$OUT" | grep -o 'jni/[^/]*' | sort -u

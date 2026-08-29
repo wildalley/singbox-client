@@ -56,10 +56,12 @@ class ShareLinkParser {
       'hysteria2' || 'hy2' => _parseHysteria2(trimmed, subscriptionId),
       'tuic' => _parseTuic(trimmed, subscriptionId),
       'anytls' => _parseAnyTls(trimmed, subscriptionId),
-      'socks' || 'socks5' => _parseSocksHttp(
-          trimmed, NodeProtocol.socks, subscriptionId),
-      'http' || 'https' => _parseSocksHttp(
-          trimmed, NodeProtocol.http, subscriptionId),
+      'socks' ||
+      'socks5' =>
+        _parseSocksHttp(trimmed, NodeProtocol.socks, subscriptionId),
+      'http' ||
+      'https' =>
+        _parseSocksHttp(trimmed, NodeProtocol.http, subscriptionId),
       _ => throw ShareLinkParseException('Unsupported scheme: $scheme'),
     };
   }
@@ -294,15 +296,16 @@ class ShareLinkParser {
     final raw = <String, dynamic>{
       'method': method,
       'password': password,
-      if ((query['plugin'] ?? '').isNotEmpty) ...(() {
-        // `plugin=obfs-local;obfs=http;obfs-host=x` -> plugin + plugin_opts
-        final plugin = query['plugin']!;
-        final semi = plugin.indexOf(';');
-        return {
-          'plugin': semi > 0 ? plugin.substring(0, semi) : plugin,
-          if (semi > 0) 'plugin_opts': plugin.substring(semi + 1),
-        };
-      })(),
+      if ((query['plugin'] ?? '').isNotEmpty)
+        ...(() {
+          // `plugin=obfs-local;obfs=http;obfs-host=x` -> plugin + plugin_opts
+          final plugin = query['plugin']!;
+          final semi = plugin.indexOf(';');
+          return {
+            'plugin': semi > 0 ? plugin.substring(0, semi) : plugin,
+            if (semi > 0) 'plugin_opts': plugin.substring(semi + 1),
+          };
+        })(),
     };
 
     return ProxyNode(
@@ -464,8 +467,7 @@ class ShareLinkParser {
         return {
           'type': 'ws',
           if (path.isNotEmpty) 'path': path,
-          if (host.isNotEmpty)
-            'headers': {'Host': host},
+          if (host.isNotEmpty) 'headers': {'Host': host},
         };
       case 'grpc':
         return {
@@ -495,7 +497,9 @@ class ShareLinkParser {
   static String _decodeBase64(String input) {
     var value = input.replaceAll('-', '+').replaceAll('_', '/').trim();
     final remainder = value.length % 4;
-    if (remainder > 0) value = value.padRight(value.length + 4 - remainder, '=');
+    if (remainder > 0) {
+      value = value.padRight(value.length + 4 - remainder, '=');
+    }
     try {
       return utf8.decode(base64.decode(value));
     } on Object {
@@ -556,8 +560,7 @@ class ShareLinkParser {
       };
 
   /// Stable id so re-importing the same subscription keeps latency/favorites.
-  static String _makeId(
-      String scheme, String host, int port, String secret) {
+  static String _makeId(String scheme, String host, int port, String secret) {
     final material = '$scheme|$host|$port|$secret';
     var hash = 0x811c9dc5;
     for (final unit in material.codeUnits) {

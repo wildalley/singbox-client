@@ -153,6 +153,35 @@ class L10nEn extends L10n {
   String get homeConnections => 'Connections';
 
   @override
+  String get homeMemory => 'Memory';
+
+  @override
+  String get homeLatency => 'Latency';
+
+  @override
+  String get homeAvailableNodes => 'Available nodes';
+
+  @override
+  String homeAvailableOf(int available, int total) {
+    return '$available / $total';
+  }
+
+  @override
+  String get homeUptime => 'Uptime';
+
+  @override
+  String get homeOverview => 'Overview';
+
+  @override
+  String get homeTrafficFlow => 'Traffic flow';
+
+  @override
+  String get homeLastMinute => 'Last 60s';
+
+  @override
+  String get homeUntestedNodes => 'Not tested yet';
+
+  @override
   String get nodesTitle => 'Nodes';
 
   @override
@@ -285,7 +314,28 @@ class L10nEn extends L10n {
   String get rulesStateOn => 'On';
 
   @override
+  String get rulesBadgeDirect => 'DIRECT';
+
+  @override
+  String get rulesBadgeProxy => 'PROXY';
+
+  @override
+  String get rulesBadgeBlock => 'BLOCK';
+
+  @override
+  String get rulesBadgeDns => 'DNS';
+
+  @override
   String get rulesChinaDirectBody => 'geosite-cn and geoip-cn bypass the proxy';
+
+  @override
+  String get rulesFallback => 'Everything else';
+
+  @override
+  String get rulesFallbackProxy => 'Goes through the selected node';
+
+  @override
+  String get rulesFallbackDirect => 'Leaves directly; the tunnel stays up';
 
   @override
   String get rulesSetsNote =>
