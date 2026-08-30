@@ -12,6 +12,26 @@ enum SubscriptionKind {
   config,
 }
 
+/// Why an import or a refresh did not produce nodes.
+///
+/// A kind rather than a message: this is persisted on the subscription and
+/// rendered in two places, and the UI is localized while an exception's text is
+/// not. The distinction that matters to the user is whether to try a different
+/// path (unreachable, which connecting first may fix) or a different source.
+enum SubscriptionFailure {
+  /// Nothing answered: offline, blocked, TLS handshake dropped, timed out.
+  unreachable,
+
+  /// The server answered with an error status, carried alongside.
+  httpStatus,
+
+  /// It answered, and the body holds no node we can use.
+  unusableContent,
+
+  /// Not a subscription or config to begin with — a bad URL, a missing file.
+  badSource,
+}
+
 class Subscription {
   const Subscription({
     required this.id,
@@ -20,7 +40,8 @@ class Subscription {
     this.url,
     this.nodeCount = 0,
     this.updatedAt,
-    this.lastError,
+    this.lastFailure,
+    this.lastFailureStatus,
     this.expiresAt,
     this.usedBytes,
     this.totalBytes,
@@ -34,7 +55,12 @@ class Subscription {
   final String? url;
   final int nodeCount;
   final DateTime? updatedAt;
-  final String? lastError;
+
+  /// How the last refresh failed, or null when it succeeded.
+  final SubscriptionFailure? lastFailure;
+
+  /// The status code behind [SubscriptionFailure.httpStatus].
+  final int? lastFailureStatus;
 
   /// Quota metadata from the panel's `subscription-userinfo` header.
   final DateTime? expiresAt;
@@ -64,8 +90,9 @@ class Subscription {
     String? url,
     int? nodeCount,
     DateTime? updatedAt,
-    String? lastError,
-    bool clearError = false,
+    SubscriptionFailure? lastFailure,
+    int? lastFailureStatus,
+    bool clearFailure = false,
     DateTime? expiresAt,
     int? usedBytes,
     int? totalBytes,
@@ -77,12 +104,35 @@ class Subscription {
       url: url ?? this.url,
       nodeCount: nodeCount ?? this.nodeCount,
       updatedAt: updatedAt ?? this.updatedAt,
-      lastError: clearError ? null : (lastError ?? this.lastError),
+      lastFailure: clearFailure ? null : (lastFailure ?? this.lastFailure),
+      lastFailureStatus:
+          clearFailure ? null : (lastFailureStatus ?? this.lastFailureStatus),
       expiresAt: expiresAt ?? this.expiresAt,
       usedBytes: usedBytes ?? this.usedBytes,
       totalBytes: totalBytes ?? this.totalBytes,
     );
   }
+
+  /// Records why the last refresh failed.
+  ///
+  /// A method rather than a `copyWith` pair because the two fields move
+  /// together: a status code means nothing except with
+  /// [SubscriptionFailure.httpStatus], so it must be cleared when the reason
+  /// changes.
+  Subscription failed(SubscriptionFailure failure, {int? status}) =>
+      Subscription(
+        id: id,
+        name: name,
+        kind: kind,
+        url: url,
+        nodeCount: nodeCount,
+        updatedAt: updatedAt,
+        lastFailure: failure,
+        lastFailureStatus: status,
+        expiresAt: expiresAt,
+        usedBytes: usedBytes,
+        totalBytes: totalBytes,
+      );
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -91,7 +141,8 @@ class Subscription {
         if (url != null) 'url': url,
         'node_count': nodeCount,
         if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
-        if (lastError != null) 'last_error': lastError,
+        if (lastFailure != null) 'last_failure': lastFailure!.name,
+        if (lastFailureStatus != null) 'last_failure_status': lastFailureStatus,
         if (expiresAt != null) 'expires_at': expiresAt!.toIso8601String(),
         if (usedBytes != null) 'used_bytes': usedBytes,
         if (totalBytes != null) 'total_bytes': totalBytes,
@@ -110,7 +161,12 @@ class Subscription {
           String value => DateTime.tryParse(value),
           _ => null,
         },
-        lastError: json['last_error'] as String?,
+        // A record written by an older build holds an English sentence under
+        // `last_error`; it is dropped rather than migrated, and the next refresh
+        // writes a kind. Showing a stale failure is not worth a translation of
+        // whatever that build happened to say.
+        lastFailure: _failureNamed(json['last_failure']),
+        lastFailureStatus: (json['last_failure_status'] as num?)?.toInt(),
         expiresAt: switch (json['expires_at']) {
           String value => DateTime.tryParse(value),
           _ => null,
@@ -118,6 +174,13 @@ class Subscription {
         usedBytes: (json['used_bytes'] as num?)?.toInt(),
         totalBytes: (json['total_bytes'] as num?)?.toInt(),
       );
+
+  static SubscriptionFailure? _failureNamed(Object? name) {
+    for (final failure in SubscriptionFailure.values) {
+      if (failure.name == name) return failure;
+    }
+    return null;
+  }
 
   /// URL with credentials removed, safe to show in the UI.
   String get redactedUrl {

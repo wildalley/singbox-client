@@ -194,6 +194,15 @@ String _latencyText(L10n l10n, int? latency) => switch (latency) {
       final value => '$value ms',
     };
 
+/// What the active exit is called.
+///
+/// Auto names no node, so [AppState.selectedNode] is null under it — but it is a
+/// selection the user made, and reading it as "no node selected" would say the
+/// opposite. Every card that names the exit goes through here.
+String _exitName(L10n l10n, AppState state) => state.isAutoSelected
+    ? l10n.nodesAuto
+    : state.selectedNode?.name ?? l10n.homeNoNodeSelected;
+
 /// Nodes that answered a probe. A negative latency is a recorded failure, so it
 /// counts as tested but not as available.
 int _availableNodes(List<ProxyNode> nodes) =>
@@ -466,7 +475,6 @@ class _HeroCard extends StatelessWidget {
     final proxy = state.proxyState;
     final accent = _stageAccent(palette, proxy.stage);
     final connected = proxy.isConnected;
-    final node = state.selectedNode;
     final nodes = state.nodes;
 
     return GlowCard(
@@ -492,7 +500,7 @@ class _HeroCard extends StatelessWidget {
                     const SizedBox(width: Gap.sm),
                     Expanded(
                       child: Text(
-                        node?.name ?? l10n.homeNoNodeSelected,
+                        _exitName(l10n, state),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.headlineMedium,
@@ -581,7 +589,9 @@ class _RingCard extends StatelessWidget {
           const SizedBox(height: Gap.lg),
           Center(
             child: Text(
-              node?.regionHint ?? l10n.homeImportPrompt,
+              state.isAutoSelected
+                  ? l10n.nodesAutoBody
+                  : node?.regionHint ?? l10n.homeImportPrompt,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall,
@@ -593,7 +603,12 @@ class _RingCard extends StatelessWidget {
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 42),
             ),
-            child: Text(node == null ? l10n.homeAddNodes : l10n.homeChangeNode),
+            // On the node list rather than on the selection: under Auto there is
+            // no node to name, and offering to add one would be wrong with a
+            // subscription already imported.
+            child: Text(state.nodes.isEmpty
+                ? l10n.homeAddNodes
+                : l10n.homeChangeNode),
           ),
         ],
       ),
@@ -695,6 +710,23 @@ class _ConnectionCard extends StatelessWidget {
             Text(
               '${node.protocol.label}  ·  ${_latencyText(l10n, node.latencyMs)}',
               style: monoStyle(color: palette.muted),
+            ),
+          ] else if (state.isAutoSelected) ...[
+            // Same two lines as a node, but the second one cannot be a protocol
+            // and a latency: which node is carrying the traffic is the engine's
+            // to decide, and it can change under this text at any moment.
+            Text(
+              l10n.nodesAuto,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 5),
+            Text(
+              l10n.nodesAutoBody,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ] else
             Text(
@@ -993,59 +1025,30 @@ class _ActiveNodeCard extends StatelessWidget {
         children: [
           PanelTitle(title: l10n.homeActiveNode, icon: Icons.public),
           const SizedBox(height: Gap.xl),
-          if (node == null)
+          // Auto comes first because it also has no node: it reaches this card as
+          // a null selection, but it is one the user made.
+          if (state.isAutoSelected)
+            _ActiveNodeRow(
+              icon: Icons.bolt_rounded,
+              title: l10n.nodesAuto,
+              // No latency to put on the right: the engine's pick can change
+              // between frames, so any figure here would name the wrong node.
+              subtitle: l10n.nodesAutoBody,
+            )
+          else if (node == null)
             Text(
               l10n.homeImportPrompt,
               style: Theme.of(context).textTheme.bodySmall,
             )
           else
-            Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: palette.violet.withValues(alpha: .13),
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: Icon(
-                    Icons.location_on_outlined,
-                    color: palette.violetSoft,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        node.regionHint,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: Gap.xs),
-                      Text(
-                        node.protocol.label,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  switch (node.latencyMs) {
-                    null => l10n.latencyUnknown,
-                    < 0 => l10n.latencyFail,
-                    final value => '$value ms',
-                  },
-                  style:
-                      monoStyle(color: latencyColor(palette, node.latencyMs)),
-                ),
-              ],
+            _ActiveNodeRow(
+              icon: Icons.location_on_outlined,
+              title: node.regionHint,
+              subtitle: node.protocol.label,
+              trailing: Text(
+                _latencyText(l10n, node.latencyMs),
+                style: monoStyle(color: latencyColor(palette, node.latencyMs)),
+              ),
             ),
           const SizedBox(height: 18),
           OutlinedButton(
@@ -1053,10 +1056,77 @@ class _ActiveNodeCard extends StatelessWidget {
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 42),
             ),
-            child: Text(node == null ? l10n.homeAddNodes : l10n.homeChangeNode),
+            // Keyed to the node list, not the selection: under Auto there is
+            // nothing to add, and the choice on offer is still a change.
+            child: Text(
+              state.nodes.isEmpty ? l10n.homeAddNodes : l10n.homeChangeNode,
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The named exit inside [_ActiveNodeCard]: tile, two lines, optional figure.
+///
+/// Extracted because Auto and a node differ only in what fills those slots, and
+/// having the layout twice invited them to drift apart.
+class _ActiveNodeRow extends StatelessWidget {
+  const _ActiveNodeRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  /// Right-hand figure, omitted when there is nothing true to put there.
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Row(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: palette.violet.withValues(alpha: .13),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+          child: Icon(icon, color: palette.violetSoft, size: 20),
+        ),
+        const SizedBox(width: Gap.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: Gap.xs),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        if (trailing != null) trailing!,
+      ],
     );
   }
 }

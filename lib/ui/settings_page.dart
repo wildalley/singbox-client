@@ -9,8 +9,10 @@ import '../models/app_settings.dart';
 import '../models/subscription.dart';
 import '../state/app_state.dart';
 import '../version.dart';
+import 'clock.dart';
 import 'import_sheet.dart';
 import 'json_highlight.dart';
+import 'notice_text.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -80,6 +82,12 @@ class SettingsPage extends StatelessWidget {
                   state.applySettings(settings.copyWith(systemProxy: value)),
             ),
           ],
+        ),
+        // Between Proxy and Network: the rule-sets decide *where* a packet goes,
+        // which is one step above how its name was resolved.
+        SettingGroup(
+          title: l10n.settingsRouting,
+          rows: [_RuleSetsRow(state: state)],
         ),
         SettingGroup(
           title: l10n.settingsNetwork,
@@ -360,7 +368,12 @@ class _SubscriptionRow extends StatelessWidget {
     final l10n = L10n.of(context);
     final refreshing = state.isRefreshing(subscription.id);
     final subtitle = switch (subscription) {
-      final item when item.lastError != null => item.lastError!,
+      Subscription(:final SubscriptionFailure lastFailure) =>
+        subscriptionFailureText(
+          l10n,
+          lastFailure,
+          status: subscription.lastFailureStatus,
+        ),
       final item when item.isRemote => item.redactedUrl,
       _ => l10n.nodesCountLabel(subscription.nodeCount),
     };
@@ -425,6 +438,52 @@ class _SubscriptionRow extends StatelessWidget {
     if (confirmed == true) {
       await state.removeSubscription(subscription.id);
     }
+  }
+}
+
+class _RuleSetsRow extends StatelessWidget {
+  const _RuleSetsRow({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final install = state.ruleSetInstall;
+    final updating = state.isUpdatingRuleSets;
+
+    final String subtitle;
+    if (!state.hasLocalRuleSets) {
+      // Nothing was unpacked here, so there is no file to replace: the engine
+      // fetches the lists itself at start on this platform.
+      subtitle = l10n.settingsRuleSetsRemote;
+    } else if (install != null && install.downloaded) {
+      subtitle = l10n.settingsRuleSetsDownloaded(relativeTime(l10n, install.at));
+    } else {
+      // A bundled install's timestamp is when the app first ran, not when the
+      // list was compiled, so showing an age here would invent freshness.
+      subtitle = l10n.settingsRuleSetsBundled;
+    }
+
+    return SettingRow(
+      icon: Icons.rule_folder_outlined,
+      title: l10n.settingsRuleSets,
+      subtitle: subtitle,
+      trailing: IconButton(
+        tooltip: l10n.actionUpdate,
+        // Disabled where there is nothing on disk to update.
+        onPressed: updating || !state.hasLocalRuleSets
+            ? null
+            : () => state.updateRuleSets(),
+        icon: updating
+            ? const SizedBox(
+                width: 15,
+                height: 15,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.refresh, size: 18),
+      ),
+    );
   }
 }
 

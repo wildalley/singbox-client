@@ -80,6 +80,23 @@
   "nodesFilterFavorites": "Favorites",
   "nodesFilterFast": "Fast",
   "nodesGroupManual": "Manual",
+  "nodesSortLatency": "Sort by latency",
+  "@nodesSortLatency": {
+    "description": "Tooltip on the sort button while the list is in source order: names what tapping it does, not the current state."
+  },
+  "nodesSortSource": "Sort by source order",
+  "@nodesSortSource": {
+    "description": "Tooltip on the sort button while the list is in latency order. 'Source order' is the order the subscription itself handed the nodes over."
+  },
+  "nodesSourceAll": "All sources",
+  "@nodesSourceAll": {
+    "description": "Source picker, shown only with more than one source: without it the second subscription's nodes are only reachable by scrolling past all of the first's."
+  },
+  "nodesAuto": "Auto",
+  "@nodesAuto": {
+    "description": "The urltest group as a selection: the engine measures the nodes and picks the fastest by itself. Named as a choice alongside the nodes, not as a setting."
+  },
+  "nodesAutoBody": "Fastest node, chosen by the engine",
   "nodesNoMatches": "No matches",
   "nodesNoMatchesBody": "No nodes match the current search or filter.",
   "nodesNothingImported": "Nothing imported yet",
@@ -151,7 +168,10 @@
   },
   "rulesFallbackProxy": "Goes through the selected node",
   "rulesFallbackDirect": "Leaves directly; the tunnel stays up",
-  "rulesSetsNote": "Rule sets are downloaded from the sing-geosite mirror on first use and refreshed weekly.",
+  "rulesSetsNote": "Rule sets ship with the app and update from Settings. A new download applies at the next connect.",
+  "@rulesSetsNote": {
+    "description": "Footer under the rule list. The lists are unpacked from the app on first run rather than fetched, and the engine reads them off disk when it starts, so an update cannot reach a running tunnel."
+  },
   "logsTitle": "Logs",
   "logsFollowing": "Following",
   "logsPaused": "Paused",
@@ -179,6 +199,18 @@
   "settingsSystemProxyBody": "Also expose a proxy on the tunnel for apps that ignore the VPN",
   "settingsStrictRoute": "Strict route",
   "settingsStrictRouteBody": "Block traffic that tries to escape the tunnel",
+  "settingsRouting": "Routing",
+  "settingsRuleSets": "Rule sets",
+  "settingsRuleSetsBundled": "Bundled with the app",
+  "settingsRuleSetsDownloaded": "downloaded {ago}",
+  "@settingsRuleSetsDownloaded": {
+    "placeholders": {
+      "ago": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsRuleSetsRemote": "Fetched by the engine at start",
   "settingsNetwork": "Network",
   "settingsRemoteDns": "Remote DNS",
   "settingsDirectDns": "Direct DNS",
@@ -295,6 +327,26 @@
     }
   },
   "importedDefaultName": "Imported",
+  "noticeImportUnreachable": "Could not reach the subscription. If it is blocked, connect first, then update again.",
+  "@noticeImportUnreachable": {
+    "description": "Nothing answered: offline, blocked, or the TLS handshake was dropped. The hint matters because the app's own traffic does not go through the tunnel unless it is aimed at the local inbound."
+  },
+  "noticeImportHttpStatus": "The subscription returned HTTP {code}",
+  "@noticeImportHttpStatus": {
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
+  "noticeImportUnusable": "No usable nodes in what came back",
+  "noticeImportBadSource": "Not a usable subscription or config",
+  "noticeRuleSetsUpdated": "Rule sets updated — active at the next connect",
+  "@noticeRuleSetsUpdated": {
+    "description": "The engine reads local rule-sets when it starts, so a fresh download cannot apply to a running tunnel."
+  },
+  "noticeRuleSetsUpdateFailed": "Could not update the rule sets; keeping the current lists",
+  "noticeRuleSetsUnavailable": "This platform has no local rule sets to update",
   "platformUnsupported": "The {platform} runtime is not implemented yet. Config rendering and node management still work.",
   "@platformUnsupported": {
     "placeholders": {

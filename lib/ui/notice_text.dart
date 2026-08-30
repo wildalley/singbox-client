@@ -5,6 +5,7 @@
 library;
 
 import '../l10n/app_localizations.dart';
+import '../models/subscription.dart';
 import '../state/app_state.dart';
 
 String noticeText(L10n l10n, AppNotice notice) {
@@ -23,7 +24,33 @@ String noticeText(L10n l10n, AppNotice notice) {
         ? l10n.noticeNodesImportedSkipped(
             notice.count ?? 0, notice.skipped ?? 0)
         : l10n.noticeNodesImported(notice.count ?? 0),
+    NoticeKind.importFailed => subscriptionFailureText(
+        l10n,
+        notice.failure ?? SubscriptionFailure.unusableContent,
+        status: notice.count,
+      ),
+    NoticeKind.ruleSetsUpdated => l10n.noticeRuleSetsUpdated,
+    NoticeKind.ruleSetsUpdateFailed => l10n.noticeRuleSetsUpdateFailed,
+    NoticeKind.ruleSetsUnavailable => l10n.noticeRuleSetsUnavailable,
     // Already-final text: an engine message or a redacted exception.
     NoticeKind.passthrough => detail,
   };
 }
+
+/// Why an import or refresh failed.
+///
+/// Shared by the snackbar and by the two rows that show a source's last
+/// failure, so a source cannot describe itself differently from the message that
+/// put it in that state.
+String subscriptionFailureText(
+  L10n l10n,
+  SubscriptionFailure failure, {
+  int? status,
+}) =>
+    switch (failure) {
+      SubscriptionFailure.unreachable => l10n.noticeImportUnreachable,
+      SubscriptionFailure.httpStatus =>
+        l10n.noticeImportHttpStatus(status ?? 0),
+      SubscriptionFailure.unusableContent => l10n.noticeImportUnusable,
+      SubscriptionFailure.badSource => l10n.noticeImportBadSource,
+    };

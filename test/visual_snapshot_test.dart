@@ -89,7 +89,7 @@ const _cjkCandidates = <String>[
   '/System/Library/Fonts/PingFang.ttc',
 ];
 
-List<ProxyNode> _nodes() {
+List<ProxyNode> _nodes({String? subscriptionId = 'sub1'}) {
   ProxyNode n(
     String id,
     String name,
@@ -105,6 +105,7 @@ List<ProxyNode> _nodes() {
         serverPort: 443,
         latencyMs: latency,
         favorite: fav,
+        subscriptionId: subscriptionId,
       );
   return [
     n('tokyo', 'Tokyo · Fast 01', NodeProtocol.vless, 42, fav: true),
@@ -135,26 +136,63 @@ const _logLines = <String>[
   'INFO inbound/tun[tun-in]: connection to 8.8.8.8:53 hijacked to dns',
 ];
 
+/// A second subscription's nodes, so the nodes page has a source to switch to.
+List<ProxyNode> _otherNodes() => [
+      const ProxyNode(
+        id: 'fra',
+        name: 'Frankfurt · Relay',
+        protocol: NodeProtocol.hysteria2,
+        server: 'fra.example.net',
+        serverPort: 443,
+        latencyMs: 96,
+        subscriptionId: 'sub2',
+      ),
+      const ProxyNode(
+        id: 'syd',
+        name: 'Sydney · Standby',
+        protocol: NodeProtocol.tuic,
+        server: 'syd.example.net',
+        serverPort: 443,
+        subscriptionId: 'sub2',
+      ),
+    ];
+
 Future<({AppState state, FakeProxyController controller})> _harness({
   bool connected = false,
   bool logs = false,
+  /// How many subscriptions the fixture holds. The nodes page hides its source
+  /// picker below two, so the second source is what puts that row in a golden.
+  int sources = 1,
+
+  /// Source ids the fixture starts folded away on the nodes page.
+  Set<String> collapsed = const {},
   AppSettings settings = const AppSettings(themeMode: AppThemeMode.dark),
 }) async {
   SharedPreferences.setMockInitialValues({});
   final storage = await Storage.open();
-  final nodes = _nodes();
+  final nodes = [..._nodes(), if (sources > 1) ..._otherNodes()];
   await storage.writeNodes(nodes);
   await storage.writeSelectedNodeId(nodes.first.id);
+  await storage.writeCollapsedSources(collapsed);
   await storage.writeSubscriptions([
     Subscription(
       id: 'sub1',
       name: 'Global Pro',
       kind: SubscriptionKind.remote,
       url: 'https://sub.example.net/get',
-      nodeCount: nodes.length,
+      nodeCount: _nodes().length,
       updatedAt: DateTime(2026, 8, 20),
       expiresAt: DateTime(2026, 12, 31),
     ),
+    if (sources > 1)
+      Subscription(
+        id: 'sub2',
+        name: 'Backup Relay',
+        kind: SubscriptionKind.remote,
+        url: 'https://backup.example.net/get',
+        nodeCount: _otherNodes().length,
+        updatedAt: DateTime(2026, 8, 28),
+      ),
   ]);
   await storage.writeSettings(settings);
   final controller = FakeProxyController();
@@ -222,6 +260,8 @@ Future<void> _shot(
   required Size size,
   required bool connected,
   bool logs = false,
+  int sources = 1,
+  Set<String> collapsed = const {},
   AppSettings settings = const AppSettings(themeMode: AppThemeMode.dark),
   Future<void> Function()? navigate,
 }) async {
@@ -236,6 +276,8 @@ Future<void> _shot(
   final harness = await _harness(
     connected: connected,
     logs: logs,
+    sources: sources,
+    collapsed: collapsed,
     settings: settings,
   );
   addTearDown(harness.state.dispose);
@@ -333,6 +375,40 @@ void main() {
           'nodes_mobile',
           size: const Size(390, 844),
           connected: false,
+          navigate: () async {
+            await tester.tap(find.byIcon(Icons.hub_outlined));
+            await tester.pump();
+          },
+        ),
+      );
+      // The source picker only exists past one subscription, and it is the row
+      // that keeps a second source from living below every row of the first.
+      testWidgets(
+        'nodes / mobile / two sources',
+        (tester) => _shot(
+          tester,
+          'nodes_mobile_two_sources',
+          size: const Size(390, 844),
+          connected: false,
+          sources: 2,
+          navigate: () async {
+            await tester.tap(find.byIcon(Icons.hub_outlined));
+            await tester.pump();
+          },
+        ),
+      );
+      // Folded, which is the state the chevron and the persisted set exist for:
+      // the first source's rows are gone and the second's header has come up to
+      // meet it, instead of sitting below all of the first source's nodes.
+      testWidgets(
+        'nodes / mobile / folded',
+        (tester) => _shot(
+          tester,
+          'nodes_mobile_folded',
+          size: const Size(390, 844),
+          connected: false,
+          sources: 2,
+          collapsed: const {'sub1'},
           navigate: () async {
             await tester.tap(find.byIcon(Icons.hub_outlined));
             await tester.pump();

@@ -6,12 +6,25 @@ import 'dart:io';
 
 import '../models/node.dart';
 import '../models/subscription.dart';
+import 'local_proxy.dart';
 import 'share_link_parser.dart';
 
 class ImportException implements Exception {
-  ImportException(this.message);
+  ImportException(
+    this.message, {
+    this.failure = SubscriptionFailure.unusableContent,
+    this.statusCode,
+  });
 
+  /// English, for the log and for `toString()`. Never shown to the user: the UI
+  /// renders [failure] instead.
   final String message;
+
+  /// What the UI reports, localized.
+  final SubscriptionFailure failure;
+
+  /// Set with [SubscriptionFailure.httpStatus].
+  final int? statusCode;
 
   @override
   String toString() => message;
@@ -51,10 +64,20 @@ class Importer {
   /// Detects the format of pasted [text] and imports it.
   ///
   /// Handles a subscription URL, one or more share links, a sing-box JSON
-  /// config, and base64-wrapped link lists.
-  Future<ImportResult> importText(String text, {String? subscriptionId}) async {
+  /// config, and base64-wrapped link lists. [viaLocalProxy] applies only to the
+  /// URL case; see [fetchSubscription].
+  Future<ImportResult> importText(
+    String text, {
+    String? subscriptionId,
+    bool viaLocalProxy = false,
+  }) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) throw ImportException('Nothing to import');
+    if (trimmed.isEmpty) {
+      throw ImportException(
+        'Nothing to import',
+        failure: SubscriptionFailure.badSource,
+      );
+    }
 
     if (_looksLikeJson(trimmed)) {
       return importSingBoxConfig(trimmed, subscriptionId: subscriptionId);
@@ -63,7 +86,11 @@ class Importer {
     // A bare http(s) URL is a subscription, not an http:// proxy share link:
     // share links carry credentials or a fragment, subscriptions do not.
     if (_looksLikeSubscriptionUrl(trimmed)) {
-      return fetchSubscription(trimmed, subscriptionId: subscriptionId);
+      return fetchSubscription(
+        trimmed,
+        subscriptionId: subscriptionId,
+        viaLocalProxy: viaLocalProxy,
+      );
     }
 
     return importShareLinks(trimmed, subscriptionId: subscriptionId);
@@ -93,7 +120,10 @@ class Importer {
     try {
       decoded = jsonDecode(text);
     } on Object {
-      throw ImportException('Invalid JSON');
+      throw ImportException(
+        'Invalid JSON',
+        failure: SubscriptionFailure.badSource,
+      );
     }
 
     final List<dynamic> outbounds;
@@ -136,7 +166,10 @@ class Importer {
   Future<ImportResult> importFile(String path, {String? subscriptionId}) async {
     final file = File(path);
     if (!await file.exists()) {
-      throw ImportException('File not found: $path');
+      throw ImportException(
+        'File not found: $path',
+        failure: SubscriptionFailure.badSource,
+      );
     }
     final content = await file.readAsString();
     return importText(content, subscriptionId: subscriptionId);
@@ -146,19 +179,62 @@ class Importer {
   ///
   /// Panels return either a base64 link list or a sing-box JSON config, and
   /// advertise quota/expiry through `subscription-userinfo`.
+  ///
+  /// With [viaLocalProxy] the tunnel is tried first and the direct path second.
+  /// Both attempts are needed: the app is excluded from the VPN (see
+  /// `local_proxy.dart`), so a blocked panel is unreachable while connected
+  /// unless the request goes through the loopback inbound — while a panel that
+  /// refuses proxied clients only answers on the direct path, which is the one
+  /// every refresh used before this. Falling back does re-expose the URL to the
+  /// local network, which is why the tunnel goes first.
   Future<ImportResult> fetchSubscription(
     String url, {
     String? subscriptionId,
+    bool viaLocalProxy = false,
   }) async {
     final Uri uri;
     try {
       uri = Uri.parse(url);
     } on Object {
-      throw ImportException('Invalid subscription URL');
+      throw ImportException(
+        'Invalid subscription URL',
+        failure: SubscriptionFailure.badSource,
+      );
     }
     if (!uri.isScheme('http') && !uri.isScheme('https')) {
-      throw ImportException('Subscription URL must be http or https');
+      throw ImportException(
+        'Subscription URL must be http or https',
+        failure: SubscriptionFailure.badSource,
+      );
     }
+
+    // The tunnel first, the direct path second.
+    final paths = viaLocalProxy ? const [true, false] : const [false];
+    ImportException? unreachable;
+    for (final throughTunnel in paths) {
+      try {
+        return await _fetchOnce(
+          uri,
+          subscriptionId: subscriptionId,
+          viaLocalProxy: throughTunnel,
+        );
+      } on ImportException catch (error) {
+        // Only a transport failure is worth the other path. A status code or an
+        // unusable body is the panel's own answer, and it would say the same
+        // thing again.
+        if (error.failure != SubscriptionFailure.unreachable) rethrow;
+        unreachable = error;
+      }
+    }
+    throw unreachable!;
+  }
+
+  Future<ImportResult> _fetchOnce(
+    Uri uri, {
+    String? subscriptionId,
+    required bool viaLocalProxy,
+  }) async {
+    routeHttp(_httpClient, viaLocalProxy: viaLocalProxy);
 
     late HttpClientResponse response;
     String body;
@@ -169,12 +245,18 @@ class Importer {
       body = await response.transform(utf8.decoder).join().timeout(_timeout);
     } on Object catch (error) {
       // Never surface the URL itself: it usually carries the token.
-      throw ImportException('Subscription fetch failed: ${_redact(error)}');
+      throw ImportException(
+        'Subscription fetch failed: ${_redact(error)}',
+        failure: SubscriptionFailure.unreachable,
+      );
     }
 
     if (response.statusCode != HttpStatus.ok) {
       throw ImportException(
-          'Subscription returned HTTP ${response.statusCode}');
+        'Subscription returned HTTP ${response.statusCode}',
+        failure: SubscriptionFailure.httpStatus,
+        statusCode: response.statusCode,
+      );
     }
 
     final base = _looksLikeJson(body.trim())
@@ -197,14 +279,21 @@ class Importer {
 
   /// Re-fetches [subscription] and returns the refreshed nodes and metadata.
   Future<({Subscription subscription, List<ProxyNode> nodes})> refresh(
-    Subscription subscription,
-  ) async {
+    Subscription subscription, {
+    bool viaLocalProxy = false,
+  }) async {
     final url = subscription.url;
     if (url == null || url.isEmpty) {
-      throw ImportException('This subscription has no URL to refresh');
+      throw ImportException(
+        'This subscription has no URL to refresh',
+        failure: SubscriptionFailure.badSource,
+      );
     }
-    final result =
-        await fetchSubscription(url, subscriptionId: subscription.id);
+    final result = await fetchSubscription(
+      url,
+      subscriptionId: subscription.id,
+      viaLocalProxy: viaLocalProxy,
+    );
     return (
       subscription: subscription.copyWith(
         name: result.subscriptionName?.isNotEmpty == true
@@ -215,7 +304,7 @@ class Importer {
         expiresAt: result.expiresAt,
         usedBytes: result.usedBytes,
         totalBytes: result.totalBytes,
-        clearError: true,
+        clearFailure: true,
       ),
       nodes: result.nodes,
     );

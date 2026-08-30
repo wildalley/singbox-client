@@ -18,8 +18,12 @@ a self-built `libbox.aar`.
 - Live status, traffic counters, and log streaming into the UI
 - Runtime node switching via the `selector` outbound, without restarting the
   tunnel
+- `urltest` group as a selectable exit, so the engine can pick the fastest node
+  itself
 - The tunnel survives the Flutter engine being killed; reopening the app
   reattaches to the running service
+- Routing rule-sets ship inside the APK, so a start needs no network; stale ones
+  update themselves once the tunnel is up
 
 **Import**
 
@@ -38,7 +42,10 @@ measured latency and favourites.
   desktop-sized windows
 - Dark and light themes, following the system setting or pinned manually
 - English and Chinese, following the system locale or pinned manually
-- TCP latency probing with bounded concurrency
+- Latency measured through the tunnel when it is up — the engine URL-tests each
+  proxy — and by TCP handshake with bounded concurrency when it is not
+- Nodes grouped by source, foldable, searchable, and sortable by latency
+- Subscriptions refresh themselves on connect when they have gone stale
 - Generated-config inspector for diagnostics
 
 ## Requirements
@@ -88,12 +95,22 @@ flutter analyze
 flutter test
 ```
 
-73 tests pass: share-link parsing, config rendering, import format detection,
+242 tests pass: share-link parsing, config rendering, import format detection,
 UI interaction against a fake controller, and localization/theme coverage
 including palette contrast ratios.
 
+Visual regression snapshots are gated behind an environment variable, because
+they render on the host's font stack and are only meaningful where they were
+recorded:
+
+```bash
+VISUAL_SNAPSHOTS=1 flutter test test/visual_snapshot_test.dart
+```
+
 End-to-end tunnel behaviour — a real node carrying real traffic — has not been
-verified in an automated way and needs a real subscription to exercise.
+verified in an automated way and needs a real subscription to exercise. The same
+holds for anything that depends on what the engine reports at runtime, including
+the URL-test delays behind latency sorting.
 
 ## Localization
 

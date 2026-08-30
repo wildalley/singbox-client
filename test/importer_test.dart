@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:singbox_client/data/config_builder.dart';
 import 'package:singbox_client/data/importer.dart';
 import 'package:singbox_client/models/node.dart';
+import 'package:singbox_client/models/subscription.dart';
 
 void main() {
   late Importer importer;
@@ -197,8 +200,115 @@ void main() {
     test('rejects a non-http subscription URL', () {
       expect(
         () => importer.fetchSubscription('ftp://example.com/sub'),
-        throwsA(isA<ImportException>()),
+        throwsA(isA<ImportException>().having(
+          (error) => error.failure,
+          'failure',
+          SubscriptionFailure.badSource,
+        )),
       );
+    });
+  });
+
+  /// Against a real server on loopback: what the UI ends up saying depends on
+  /// how a failure is classified, and the reported bug was that it said it in
+  /// English because the exception message *was* the message.
+  group('a subscription over HTTP', () {
+    late HttpServer server;
+    late String url;
+    late void Function(HttpResponse response) respond;
+
+    setUp(() async {
+      respond = (response) => response.write(
+            'trojan://pass@a.example.com:443#A',
+          );
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      // A token in the query, because it must never reach a message.
+      url = 'http://${server.address.address}:${server.port}/sub?token=s3cr3t';
+      server.listen((request) async {
+        respond(request.response);
+        await request.response.close();
+      });
+    });
+
+    tearDown(() => server.close(force: true));
+
+    test('parses a link list body', () async {
+      final result = await importer.fetchSubscription(url);
+      expect(result.nodes.single.name, 'A');
+    });
+
+    test('an error status is reported as a status, with the code', () async {
+      respond = (response) {
+        response.statusCode = HttpStatus.forbidden;
+        response.write('nope');
+      };
+
+      await expectLater(
+        importer.fetchSubscription(url),
+        throwsA(isA<ImportException>()
+            .having((error) => error.failure, 'failure',
+                SubscriptionFailure.httpStatus)
+            .having((error) => error.statusCode, 'statusCode', 403)),
+      );
+    });
+
+    test('a body with nothing usable in it is not a transport failure',
+        () async {
+      // The distinction the user acts on: this one will not be fixed by
+      // connecting first and trying again.
+      respond = (response) => response.write('<html>login</html>');
+
+      await expectLater(
+        importer.fetchSubscription(url),
+        throwsA(isA<ImportException>().having((error) => error.failure,
+            'failure', SubscriptionFailure.unusableContent)),
+      );
+    });
+
+    test('nothing listening reads as unreachable, without the token', () async {
+      final port = server.port;
+      await server.close(force: true);
+
+      await expectLater(
+        importer.fetchSubscription(
+          'http://127.0.0.1:$port/sub?token=s3cr3t',
+        ),
+        throwsA(isA<ImportException>()
+            .having((error) => error.failure, 'failure',
+                SubscriptionFailure.unreachable)
+            .having((error) => error.message, 'message',
+                isNot(contains('s3cr3t')))),
+      );
+    });
+
+    test('connected, it tries the tunnel first and then the direct path',
+        () async {
+      // The app is excluded from the VPN, so the loopback inbound is the only
+      // way to reach a blocked panel — and a panel that refuses proxied clients
+      // only answers directly. Here nothing is behind the inbound, which is
+      // what a running engine with an unreachable node looks like.
+      final ServerSocket inbound;
+      try {
+        inbound = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          ConfigBuilder.localProxyPort,
+        );
+      } on SocketException {
+        markTestSkipped('port ${ConfigBuilder.localProxyPort} is in use');
+        return;
+      }
+      addTearDown(() => inbound.close());
+      var attempts = 0;
+      inbound.listen((socket) {
+        attempts++;
+        socket.destroy();
+      });
+
+      final result = await importer.fetchSubscription(url, viaLocalProxy: true);
+
+      expect(attempts, greaterThan(0), reason: 'the tunnel was not tried');
+      expect(result.nodes.single.name, 'A',
+          reason: 'the direct path must still be attempted after it fails');
     });
   });
 

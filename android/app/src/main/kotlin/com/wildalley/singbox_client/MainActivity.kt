@@ -127,6 +127,24 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+            // Asks the engine to measure every member of the proxy selector
+            // through the tunnel. Results do not come back here — they arrive on
+            // the event channel as a `groups` event, because libbox reports them
+            // to the group subscription rather than to the caller.
+            "urlTest" -> {
+                val service = SingBoxVpnService.instance
+                if (service == null) {
+                    result.error("not_running", "The tunnel is not running", null)
+                } else {
+                    try {
+                        service.urlTest(PROXY_GROUP)
+                        result.success(null)
+                    } catch (error: Throwable) {
+                        result.error("url_test_failed", error.message ?: "urlTest failed", null)
+                    }
+                }
+            }
+
             "status" -> result.success(BoxEvents.statusMap())
 
             // Where Dart unpacks the bundled rule-sets. Deliberately the same

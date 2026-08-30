@@ -10,6 +10,7 @@ import 'dart:io';
 
 import '../models/app_settings.dart';
 import '../models/node.dart';
+import 'rule_sets.dart';
 
 /// Outbound tags referenced by generated route rules.
 class ConfigTags {
@@ -21,9 +22,20 @@ class ConfigTags {
 class ConfigBuilder {
   const ConfigBuilder._();
 
-  /// Local Clash API port, also used to read traffic when the platform layer
-  /// cannot provide it.
+  /// Local Clash API port. Nothing in the app talks to it — libbox reaches the
+  /// runtime over its own command socket — but the listener has to exist for the
+  /// clash-mode rules and the traffic figures libbox reads from it, so it is
+  /// bound to loopback and gated behind a secret rather than switched off.
   static const clashApiPort = 9291;
+
+  /// Loopback HTTP/SOCKS inbound, on 127.0.0.1 only.
+  ///
+  /// Two consumers: `systemProxy` advertises this address to Android, and the
+  /// in-app rule-set update sends its download through it. The second one is why
+  /// the inbound is unconditional — the app's own package is excluded from the
+  /// tunnel, so this is the only way anything the app fetches can leave through
+  /// the selected node.
+  static const localProxyPort = 2080;
 
   /// Builds the full configuration.
   ///
@@ -34,10 +46,16 @@ class ConfigBuilder {
   /// [ruleSetDir] is where `BundledRuleSets` unpacked the shipped `.srs` files.
   /// Given one, the rule-sets are `local` and start needs no network; without
   /// one they fall back to `remote`, which is fatal on an unreachable URL.
+  ///
+  /// [clashSecret] is the bearer token for the Clash API listener. Required, not
+  /// defaulted: on Android every app on the device can reach 127.0.0.1, so an
+  /// unauthenticated listener lets any of them switch the user's outbound and
+  /// read their connection list. Nothing may render this config without one.
   static Map<String, dynamic> build({
     required List<ProxyNode> nodes,
     required String? selectedNodeId,
     required AppSettings settings,
+    required String clashSecret,
     String? ruleSetDir,
   }) {
     final nodeTags = <String, String>{};
@@ -94,6 +112,7 @@ class ConfigBuilder {
       'experimental': {
         'clash_api': {
           'external_controller': '127.0.0.1:$clashApiPort',
+          'secret': clashSecret,
         },
         'cache_file': {
           'enabled': true,
@@ -216,9 +235,22 @@ class ConfigBuilder {
             'http_proxy': {
               'enabled': true,
               'server': '127.0.0.1',
-              'server_port': 2080,
+              // The mixed inbound below is what makes this address answer; an
+              // advertised proxy with nothing behind it breaks every app that
+              // honours the system setting.
+              'server_port': localProxyPort,
             },
           },
+      },
+      // Loopback proxy for traffic that cannot use the tun: the app itself is
+      // excluded from the VPN, so its own requests (the rule-set update) reach
+      // the tunnel only through here. Bound to 127.0.0.1 deliberately — the
+      // sing-box default listen address would expose an open proxy to the LAN.
+      {
+        'type': 'mixed',
+        'tag': 'mixed-in',
+        'listen': '127.0.0.1',
+        'listen_port': localProxyPort,
       },
     ];
   }
@@ -288,7 +320,8 @@ class ConfigBuilder {
       'type': 'local',
       'tag': tag,
       'format': 'binary',
-      'path': '$dir/$tag.srs',
+      // Through BundledRuleSets so this is the same name the unpacking writes.
+      'path': '$dir/${BundledRuleSets.fileName(tag)}',
     };
   }
 
@@ -298,15 +331,12 @@ class ConfigBuilder {
   /// optional flag — so this is the fragile path, kept only because a missing
   /// local file leaves nowhere else to read the lists from.
   static Map<String, dynamic> _remoteRuleSet(String tag) {
-    // geoip and geosite are separate repositories; pointing a geoip set at
-    // sing-geosite silently 404s, which then reads as a network failure.
-    final repo = tag.startsWith('geoip') ? 'sing-geoip' : 'sing-geosite';
     return {
       'type': 'remote',
       'tag': tag,
       'format': 'binary',
-      'url': 'https://raw.githubusercontent.com/SagerNet/$repo/rule-set/'
-          '${_upstreamName[tag]}',
+      // One table of upstream URLs, shared with the updater.
+      'url': BundledRuleSets.upstreamUrl(tag).toString(),
       // Through the tunnel, not around it. These are the CN rule-sets, so the
       // user fetching them is the user who cannot reach raw.githubusercontent
       // .com directly; `direct` here fails for exactly the audience it serves.
@@ -314,13 +344,6 @@ class ConfigBuilder {
       'update_interval': '7d',
     };
   }
-
-  /// Upstream file name per tag. The tags are ours; these are not.
-  static const _upstreamName = {
-    'geosite-cn': 'geosite-geolocation-cn.srs',
-    'geoip-cn': 'geoip-cn.srs',
-    'geosite-ads': 'geosite-category-ads-all.srs',
-  };
 
   /// The outbound tag for [node].
   ///

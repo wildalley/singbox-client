@@ -175,6 +175,18 @@ class SingBoxVpnService : VpnService() {
             .onFailure { Log.w(TAG, "selectOutbound failed", it) }
     }
 
+    /**
+     * Asks the engine to URL-test every member of [group].
+     *
+     * Returns without waiting: libbox reports the results through the group
+     * subscription, which arrives at [ClientHandler.writeGroups]. Throws when
+     * the tunnel is not running, so the caller can fall back to its own probe.
+     */
+    fun urlTest(group: String) {
+        val client = commandClient ?: throw IllegalStateException("not connected")
+        client.urlTest(group)
+    }
+
     private fun connectCommandClient() {
         val options = CommandClientOptions().apply {
             statusInterval = STATUS_INTERVAL_NANOS
@@ -182,6 +194,9 @@ class SingBoxVpnService : VpnService() {
             // carries the subscriptions.
             addCommand(Libbox.CommandStatus)
             addCommand(Libbox.CommandLog)
+            // Carries the URL-test delays: the only figures measured through the
+            // tunnel rather than by a TCP handshake from outside it.
+            addCommand(Libbox.CommandGroup)
         }
         val client = Libbox.newCommandClient(ClientHandler(), options)
         client.connect()
@@ -353,7 +368,47 @@ class SingBoxVpnService : VpnService() {
 
         override fun updateClashMode(newMode: String) = Unit
 
-        override fun writeGroups(message: OutboundGroupIterator) = Unit
+        /**
+         * Group state, including each member's last URL-test delay.
+         *
+         * The iterators are only valid for the duration of this call — they are
+         * views onto memory libbox owns — so everything is copied into plain maps
+         * before it leaves. Flattened here rather than in Dart because the
+         * channel cannot carry the iterator itself.
+         */
+        override fun writeGroups(message: OutboundGroupIterator) {
+            val groups = mutableListOf<Map<String, Any?>>()
+            while (message.hasNext()) {
+                val group = message.next()
+                val items = mutableListOf<Map<String, Any?>>()
+                val iterator = group.items
+                while (iterator.hasNext()) {
+                    val item = iterator.next()
+                    items.add(
+                        mapOf(
+                            "tag" to item.tag,
+                            "type" to item.type,
+                            // 0 is libbox's "no result": either never tested or the
+                            // last test failed. Dart decides what that means.
+                            //
+                            // The getter rather than property syntax: Kotlin's
+                            // synthesis of `getURLTestDelay` over a leading
+                            // acronym is not something to bet a build on.
+                            "delay" to item.getURLTestDelay(),
+                        )
+                    )
+                }
+                groups.add(
+                    mapOf(
+                        "tag" to group.tag,
+                        "type" to group.type,
+                        "selected" to group.selected,
+                        "items" to items,
+                    )
+                )
+            }
+            if (groups.isNotEmpty()) BoxEvents.emitGroups(groups)
+        }
 
         override fun writeConnectionEvents(events: ConnectionEvents) = Unit
     }

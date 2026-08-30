@@ -200,6 +200,21 @@ class L10nEn extends L10n {
   String get nodesGroupManual => 'Manual';
 
   @override
+  String get nodesSortLatency => 'Sort by latency';
+
+  @override
+  String get nodesSortSource => 'Sort by source order';
+
+  @override
+  String get nodesSourceAll => 'All sources';
+
+  @override
+  String get nodesAuto => 'Auto';
+
+  @override
+  String get nodesAutoBody => 'Fastest node, chosen by the engine';
+
+  @override
   String get nodesNoMatches => 'No matches';
 
   @override
@@ -339,7 +354,7 @@ class L10nEn extends L10n {
 
   @override
   String get rulesSetsNote =>
-      'Rule sets are downloaded from the sing-geosite mirror on first use and refreshed weekly.';
+      'Rule sets ship with the app and update from Settings. A new download applies at the next connect.';
 
   @override
   String get logsTitle => 'Logs';
@@ -412,6 +427,23 @@ class L10nEn extends L10n {
   @override
   String get settingsStrictRouteBody =>
       'Block traffic that tries to escape the tunnel';
+
+  @override
+  String get settingsRouting => 'Routing';
+
+  @override
+  String get settingsRuleSets => 'Rule sets';
+
+  @override
+  String get settingsRuleSetsBundled => 'Bundled with the app';
+
+  @override
+  String settingsRuleSetsDownloaded(String ago) {
+    return 'downloaded $ago';
+  }
+
+  @override
+  String get settingsRuleSetsRemote => 'Fetched by the engine at start';
 
   @override
   String get settingsNetwork => 'Network';
@@ -605,6 +637,33 @@ class L10nEn extends L10n {
 
   @override
   String get importedDefaultName => 'Imported';
+
+  @override
+  String get noticeImportUnreachable =>
+      'Could not reach the subscription. If it is blocked, connect first, then update again.';
+
+  @override
+  String noticeImportHttpStatus(int code) {
+    return 'The subscription returned HTTP $code';
+  }
+
+  @override
+  String get noticeImportUnusable => 'No usable nodes in what came back';
+
+  @override
+  String get noticeImportBadSource => 'Not a usable subscription or config';
+
+  @override
+  String get noticeRuleSetsUpdated =>
+      'Rule sets updated — active at the next connect';
+
+  @override
+  String get noticeRuleSetsUpdateFailed =>
+      'Could not update the rule sets; keeping the current lists';
+
+  @override
+  String get noticeRuleSetsUnavailable =>
+      'This platform has no local rule sets to update';
 
   @override
   String platformUnsupported(String platform) {

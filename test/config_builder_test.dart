@@ -32,10 +32,30 @@ Map<String, dynamic>? _outbound(Map<String, dynamic> config, String tag) {
   return null;
 }
 
+/// [ConfigBuilder.build] with a stand-in Clash API secret.
+///
+/// The real one is required so that no production path can render a config
+/// without it; every case below is about something else, so the value lives here
+/// once instead of on thirty call sites.
+Map<String, dynamic> _build({
+  required List<ProxyNode> nodes,
+  required String? selectedNodeId,
+  required AppSettings settings,
+  String? ruleSetDir,
+  String clashSecret = 'test-secret',
+}) =>
+    ConfigBuilder.build(
+      nodes: nodes,
+      selectedNodeId: selectedNodeId,
+      settings: settings,
+      clashSecret: clashSecret,
+      ruleSetDir: ruleSetDir,
+    );
+
 void main() {
   group('outbounds', () {
     test('renders one outbound per node plus auto, selector, and direct', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node(id: 'a', name: 'A'), _node(id: 'b', name: 'B')],
         selectedNodeId: 'b',
         settings: const AppSettings(),
@@ -53,7 +73,7 @@ void main() {
 
     test('the selector defaults to the selected node', () {
       final nodes = [_node(id: 'a', name: 'A'), _node(id: 'b', name: 'B')];
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: nodes,
         selectedNodeId: 'b',
         settings: const AppSettings(),
@@ -64,7 +84,7 @@ void main() {
     });
 
     test('an unknown selection falls back to auto', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node(id: 'a')],
         selectedNodeId: 'missing',
         settings: const AppSettings(),
@@ -75,7 +95,7 @@ void main() {
 
     test('with no nodes the selector points at direct so start still works',
         () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: const [],
         selectedNodeId: null,
         settings: const AppSettings(),
@@ -88,7 +108,7 @@ void main() {
 
     test('outboundTag matches the tag used in the rendered config', () {
       final node = _node(name: 'Tokyo · Fast 01');
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [node],
         selectedNodeId: node.id,
         settings: const AppSettings(),
@@ -104,7 +124,7 @@ void main() {
         _node(id: 'a', name: 'Same Name'),
         _node(id: 'b', name: 'Same Name'),
       ];
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: nodes,
         selectedNodeId: 'a',
         settings: const AppSettings(),
@@ -117,7 +137,7 @@ void main() {
     });
 
     test('node credentials survive into the outbound', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(),
@@ -130,7 +150,7 @@ void main() {
 
   group('routing', () {
     test('rule mode sends CN traffic direct and keeps proxy as final', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(routingMode: RoutingMode.rule),
@@ -150,7 +170,7 @@ void main() {
     });
 
     test('global mode does not add the CN direct rule', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(routingMode: RoutingMode.global),
@@ -167,7 +187,7 @@ void main() {
     });
 
     test('direct mode routes everything direct', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(routingMode: RoutingMode.direct),
@@ -177,7 +197,7 @@ void main() {
     });
 
     test('sniff runs before the DNS hijack', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(),
@@ -194,7 +214,7 @@ void main() {
     });
 
     test('ad blocking adds a reject rule and its rule set', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(blockAds: true),
@@ -213,7 +233,7 @@ void main() {
     });
 
     test('disabling ad blocking removes both', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(blockAds: false),
@@ -248,7 +268,7 @@ void main() {
       // The whole point of bundling: sing-box initializes rule-sets during
       // start and a failed fetch is fatal, so anything left reaching out here
       // can abort the tunnel.
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(blockAds: true),
@@ -272,7 +292,7 @@ void main() {
       // geoip and geosite are separate repositories. geoip-cn under
       // sing-geosite is a 404, which surfaces on the device as a rule-set
       // download failure and reads like a network problem.
-      final declared = sets(ConfigBuilder.build(
+      final declared = sets(_build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(),
@@ -288,7 +308,7 @@ void main() {
     test('every referenced tag is declared, in both modes', () {
       // A rule naming a rule-set that is not declared fails the whole start.
       for (final dir in [null, '/data/app/rule-sets']) {
-        final config = ConfigBuilder.build(
+        final config = _build(
           nodes: [_node()],
           selectedNodeId: 'n1',
           settings: const AppSettings(blockAds: true),
@@ -309,7 +329,7 @@ void main() {
 
   group('tun inbound', () {
     test('applies mtu, stack, and strict route from settings', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(
@@ -326,12 +346,12 @@ void main() {
     });
 
     test('ipv6 adds a second tun address', () {
-      final v4 = ConfigBuilder.build(
+      final v4 = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(ipv6: false),
       );
-      final v6 = ConfigBuilder.build(
+      final v6 = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(ipv6: true),
@@ -342,12 +362,12 @@ void main() {
     });
 
     test('system proxy adds the platform http proxy block', () {
-      final off = ConfigBuilder.build(
+      final off = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(systemProxy: false),
       );
-      final on = ConfigBuilder.build(
+      final on = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(systemProxy: true),
@@ -356,11 +376,51 @@ void main() {
       expect(((off['inbounds'] as List).first as Map)['platform'], isNull);
       expect(((on['inbounds'] as List).first as Map)['platform'], isNotNull);
     });
+
+    test('the advertised system proxy is the port something listens on', () {
+      // The tun's platform block promises an address; the mixed inbound is what
+      // makes it answer. A literal on either side breaks every app that honours
+      // the system proxy setting, and only on a device.
+      final config = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(systemProxy: true),
+      );
+
+      final inbounds = config['inbounds'] as List;
+      final tun = inbounds.first as Map;
+      final mixed = inbounds.firstWhere((item) => (item as Map)['type'] == 'mixed') as Map;
+
+      expect(tun['type'], 'tun', reason: 'the tests read the tun as inbounds[0]');
+      expect(mixed['listen'], '127.0.0.1',
+          reason: 'the sing-box default would expose an open proxy to the LAN');
+      expect(mixed['listen_port'], ConfigBuilder.localProxyPort);
+      expect(
+        (((tun['platform'] as Map)['http_proxy'] as Map))['server_port'],
+        mixed['listen_port'],
+      );
+    });
+
+    test('the loopback proxy is there even with the system proxy off', () {
+      // The rule-set update goes out through it: the app's own package is
+      // excluded from the VPN, so this is the only path from in-app HTTP to the
+      // selected node.
+      final config = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(systemProxy: false),
+      );
+
+      expect(
+        (config['inbounds'] as List).where((item) => (item as Map)['type'] == 'mixed'),
+        hasLength(1),
+      );
+    });
   });
 
   group('dns', () {
     test('derives the server type and host from the configured URL', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(dnsRemote: 'tls://9.9.9.9'),
@@ -381,7 +441,7 @@ void main() {
       // sing-box counts a `direct` outbound with no dialer options as empty and
       // refuses to start a DNS server that detours to it: "detour to an empty
       // direct outbound makes no sense". A DNS server already dials directly.
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(),
@@ -395,7 +455,7 @@ void main() {
     });
 
     test('an IP direct server needs no domain resolver', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(dnsDirect: 'https://223.5.5.5/dns-query'),
@@ -412,7 +472,7 @@ void main() {
       // Without a detour the resolve path is live, and a DNS server does not
       // fall back to route.default_domain_resolver, so start would fail with
       // "missing domain resolver for domain server address".
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings:
@@ -433,7 +493,7 @@ void main() {
       // Android localDNSTransport() returns null, so libbox fell back to Go
       // reading /etc/resolv.conf, found no nameserver, and sent every startup
       // query to loopback: "read udp [::1]:53: connection refused".
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(),
@@ -455,7 +515,7 @@ void main() {
     });
 
     test('the bootstrap resolver reuses an IP direct DNS host', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(dnsDirect: 'udp://119.29.29.29'),
@@ -471,7 +531,7 @@ void main() {
     test('a hostname direct DNS host does not become the bootstrap', () {
       // Resolving that hostname is the very job the bootstrap server exists to
       // do, so it has to fall back to a literal.
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings:
@@ -487,7 +547,7 @@ void main() {
     });
 
     test('fakeip adds its server and is reflected in the cache file', () {
-      final config = ConfigBuilder.build(
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(fakeIp: true),
@@ -505,8 +565,42 @@ void main() {
     });
   });
 
+  group('clash api', () {
+    Map<String, dynamic> clashApi(Map<String, dynamic> config) =>
+        Map<String, dynamic>.from(
+          (config['experimental'] as Map)['clash_api'] as Map,
+        );
+
+    test('the listener stays on loopback and carries the secret', () {
+      // On Android 127.0.0.1 is reachable by every app on the device, so the
+      // listen address is not a boundary — the token is the only one there is.
+      final config = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(),
+        clashSecret: 'deadbeef',
+      );
+
+      final api = clashApi(config);
+      expect(api['external_controller'], '127.0.0.1:${ConfigBuilder.clashApiPort}');
+      expect(api['secret'], 'deadbeef');
+    });
+
+    test('the secret is rendered even with no nodes', () {
+      // Nothing about the listener depends on nodes, but the same function
+      // renders both and the empty-node branch is the less travelled one.
+      final config = _build(
+        nodes: const [],
+        selectedNodeId: null,
+        settings: const AppSettings(),
+      );
+
+      expect(clashApi(config)['secret'], 'test-secret');
+    });
+  });
+
   test('log level comes from settings', () {
-    final config = ConfigBuilder.build(
+    final config = _build(
       nodes: [_node()],
       selectedNodeId: 'n1',
       settings: const AppSettings(logLevel: LogLevel.debug),
@@ -516,7 +610,7 @@ void main() {
   });
 
   test('encode produces valid JSON that round-trips', () {
-    final config = ConfigBuilder.build(
+    final config = _build(
       nodes: [_node()],
       selectedNodeId: 'n1',
       settings: const AppSettings(),
