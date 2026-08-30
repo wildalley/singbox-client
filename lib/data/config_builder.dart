@@ -30,10 +30,15 @@ class ConfigBuilder {
   /// [nodes] become individual outbounds plus a `selector`; [selectedNodeId]
   /// is the selector default. When [nodes] is empty the proxy selector falls
   /// back to direct so the service can still start.
+  ///
+  /// [ruleSetDir] is where `BundledRuleSets` unpacked the shipped `.srs` files.
+  /// Given one, the rule-sets are `local` and start needs no network; without
+  /// one they fall back to `remote`, which is fatal on an unreachable URL.
   static Map<String, dynamic> build({
     required List<ProxyNode> nodes,
     required String? selectedNodeId,
     required AppSettings settings,
+    String? ruleSetDir,
   }) {
     final nodeTags = <String, String>{};
     final outbounds = <Map<String, dynamic>>[];
@@ -85,7 +90,7 @@ class ConfigBuilder {
       'dns': _dns(settings),
       'inbounds': _inbounds(settings),
       'outbounds': outbounds,
-      'route': _route(settings),
+      'route': _route(settings, ruleSetDir),
       'experimental': {
         'clash_api': {
           'external_controller': '127.0.0.1:$clashApiPort',
@@ -218,7 +223,7 @@ class ConfigBuilder {
     ];
   }
 
-  static Map<String, dynamic> _route(AppSettings settings) {
+  static Map<String, dynamic> _route(AppSettings settings, String? ruleSetDir) {
     final rules = <Map<String, dynamic>>[
       // Sniff first so domain rules can match on TLS/HTTP hostnames.
       {'action': 'sniff'},
@@ -232,13 +237,12 @@ class ConfigBuilder {
     ];
 
     final ruleSets = <Map<String, dynamic>>[
-      _remoteRuleSet('geosite-cn', 'geosite', 'geolocation-cn'),
-      _remoteRuleSet('geoip-cn', 'geoip', 'cn'),
+      _ruleSet('geosite-cn', ruleSetDir),
+      _ruleSet('geoip-cn', ruleSetDir),
     ];
 
     if (settings.blockAds) {
-      ruleSets
-          .add(_remoteRuleSet('geosite-ads', 'geosite', 'category-ads-all'));
+      ruleSets.add(_ruleSet('geosite-ads', ruleSetDir));
       rules.add({
         'rule_set': ['geosite-ads'],
         'action': 'reject',
@@ -261,32 +265,62 @@ class ConfigBuilder {
         RoutingMode.rule => ConfigTags.proxy,
       },
       'auto_detect_interface': true,
-      // Resolves the rule-set download URLs, which happens at start before any
-      // tunnel exists — so it has to be the bootstrap server, not `local`.
+      // Resolves outbound server hostnames — and, when the rule-sets fall back
+      // to `remote`, their download URLs too. Either way this runs at start,
+      // before any tunnel exists, so it has to be the bootstrap server rather
+      // than `local`.
       'default_domain_resolver': {
         'server': 'dns-bootstrap',
       },
     };
   }
 
-  static Map<String, dynamic> _remoteRuleSet(
-      String tag, String kind, String name) {
+  /// One entry for `route.rule_set`, local when the files are on disk.
+  static Map<String, dynamic> _ruleSet(String tag, String? dir) =>
+      dir == null ? _remoteRuleSet(tag) : _localRuleSet(tag, dir);
+
+  /// A rule-set read straight off disk: no network, so it cannot fail the start.
+  ///
+  /// This is the path Android takes; see `lib/data/rule_sets.dart` for why
+  /// downloading them is not an option here.
+  static Map<String, dynamic> _localRuleSet(String tag, String dir) {
+    return {
+      'type': 'local',
+      'tag': tag,
+      'format': 'binary',
+      'path': '$dir/$tag.srs',
+    };
+  }
+
+  /// Fallback for a platform with no unpacked rule-sets.
+  ///
+  /// A failed fetch here aborts the whole start — sing-box has no per-rule-set
+  /// optional flag — so this is the fragile path, kept only because a missing
+  /// local file leaves nowhere else to read the lists from.
+  static Map<String, dynamic> _remoteRuleSet(String tag) {
+    // geoip and geosite are separate repositories; pointing a geoip set at
+    // sing-geosite silently 404s, which then reads as a network failure.
+    final repo = tag.startsWith('geoip') ? 'sing-geoip' : 'sing-geosite';
     return {
       'type': 'remote',
       'tag': tag,
       'format': 'binary',
-      'url':
-          'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/$kind-$name.srs',
+      'url': 'https://raw.githubusercontent.com/SagerNet/$repo/rule-set/'
+          '${_upstreamName[tag]}',
       // Through the tunnel, not around it. These are the CN rule-sets, so the
       // user fetching them is the user who cannot reach raw.githubusercontent
       // .com directly; `direct` here fails for exactly the audience it serves.
-      // The exit node can reach GitHub, and the node's own address is resolved
-      // by route.default_domain_resolver (the plain-UDP bootstrap above), so
-      // this does not need the rule-sets it is downloading.
       'download_detour': ConfigTags.proxy,
       'update_interval': '7d',
     };
   }
+
+  /// Upstream file name per tag. The tags are ours; these are not.
+  static const _upstreamName = {
+    'geosite-cn': 'geosite-geolocation-cn.srs',
+    'geoip-cn': 'geoip-cn.srs',
+    'geosite-ads': 'geosite-category-ads-all.srs',
+  };
 
   /// The outbound tag for [node].
   ///

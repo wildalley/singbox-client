@@ -6,8 +6,8 @@
 现状基线：`lib/ui/` 8 个文件约 3400 行，token 集中在 `lib/ui/theme.dart`
 （`AppPalette` theme extension + `Gap` + `AppFonts`），双主题与中英文已接通，
 73 个测试通过。本次改版只动表现层，不动 `lib/state/`、`lib/data/`、`lib/platform/`。
-（唯一的例外是后来「真机一轮」里那个引擎缺陷 —— 真机报错逼出了 `lib/data/`
-的一处 DNS 配置修复，那不属于改版，只是搭同一趟车。）
+（例外都来自后面两轮真机 —— 设备上的报错逼出了 `lib/data/` 的 DNS 配置修复和规则集
+内置，以及 `lib/platform/` 的一个目录查询。那些不属于改版，只是搭同一趟车。）
 
 ---
 
@@ -328,7 +328,7 @@ rule-set，需要它们的用户恰恰就是直连不到 raw.githubusercontent.c
 
 两处都是纯配置改动，`BoxPlatform.kt` 没动 —— 认真实现 `localDNSTransport()` 是另一条
 更大的路。**离线启动仍然会失败**，这是 sing-box 的设计（远程 rule-set 初始化致命），
-要修得把 `.srs` 打进包里，这一轮没做。
+要修得把 `.srs` 打进包里，这一轮没做（下一轮做了，见「规则集内置」）。
 
 **缺陷二：长引擎错误糊满首屏。** 那条几百字符的错误无界渲染，压过连接拨盘、
 「连接」按钮和实时流量卡片，身后还透出一份正确截断的副本。第一个假设（`notice_text.dart`
@@ -411,6 +411,58 @@ Flutter 第一帧画出来之间是可见的，之后还一直在 UI 背后。�
 
 门禁：`flutter analyze` 干净，135 个测试全通过（127 → 135：8 个 Android 资源测试），
 金标 11/11。
+
+### 规则集内置
+
+第二次侧载，同一条链路的下一段：错误从 `[::1]:53` 变成
+`initialize rule-set[0]: initial rule-set: geosite-cn: Get "https://raw.githubusercontent
+.com/…"`。截图在**原因之前**就断了 —— 上一轮的 clamp 正在起作用，全文只在日志页 ——
+所以从图上分不清是 DNS 还没通还是可达性问题。
+
+但这一段不需要分清。启动期去 GitHub 拿文件这件事本身就是错的，三条理由各自独立：
+
+1. 远程 rule-set 初始化在 sing-box 里是**致命**的，且没有 per-rule-set 的 optional
+   开关。一个 URL 不通，整条隧道起不来。
+2. CN 规则集的目标用户，恰恰就是直连不到 raw.githubusercontent.com 的那批人。
+3. `download_detour: proxy` 救不了它。rule-set 是在 route 组装期需要的，
+   那个 outbound 此刻还不能承载流量 —— 上一轮加这个 detour 时我把它当成了解法，
+   它只是把失败原因换了一个。
+
+所以把三个 `.srs` 打进 APK（合计 97KB，在 75.2MB 的包里可以忽略），启动时解到
+`filesDir/rule-sets/`，配置改成 `type: local` + `path`。启动期零网络，离线也能起。
+
+**顺带查出一个与网络无关的缺陷。** `geoip-cn` 的 URL 指向 `SagerNet/sing-geosite`，
+而 geoip 规则集在 `SagerNet/sing-geoip` —— 前者是 404。curl 实测：
+`sing-geosite/rule-set/geoip-cn.srs` → 404，`sing-geoip/rule-set/geoip-cn.srs` → 200。
+也就是说 rule-set[1] 在任何网络条件下都必然失败，跟墙没关系。两个仓库的差别现在同时
+写在 `_remoteRuleSet` 的注释、抓取脚本的表格和一条断言里。
+
+**目录从哪来。** 没有引 `path_provider`：它当前的 Android 实现会拖进 JNI 绑定和
+build hooks（`pub get` 实测多出 16 个包，含 `jni` / `objective_c` / `hooks`），
+为一个字符串付这个构建面积不值得。改成在既有的 `singbox/control` channel 上加一个
+`dataDir`，返回 `filesDir.absolutePath` —— 正好就是 libbox `SetupOptions.basePath`
+那个目录，规则文件和引擎状态同处一地。`configureFlutterEngine` 在 Dart entrypoint
+之前执行，所以 `main()` 里 `await` 它是安全的（顺序反了会静默拿到 null）。
+桌面没有 host 应答，`prepare()` 返回 null，配置退回 remote —— 那条路径依然脆弱，
+但桌面本来也没有引擎。
+
+**代价是新鲜度**：列表只有 APK 那么新。`scripts/fetch-rule-sets.sh` 重取并提交即可；
+国家段和广告域名列表变化很慢。脚本会校验 `SRS` 文件头，免得把 404 页面或门户登录页
+当成规则集提交进去。**没做**：应用内更新规则集 —— 那需要一个能优雅失败的下载入口，
+关键是它必须不在启动路径上。
+
+11 个新测试（`test/rule_sets_test.dart` 8 个 + `config_builder_test.dart` 3 个）。
+最要紧的一条是把两个模块对起来：`extractTo` 写 `$dir/$tag.srs`，`ConfigBuilder`
+指 `$dir/$tag.srs`，两份 tag 列表各在一边 —— 测试解包一次再逐个 `File.existsSync()`，
+tag 漂移就红。另外守着：资源确实是 `SRS` 开头的编译产物而不是 HTML、pubspec 真的
+打包了那个目录（漏了就静默退回下载）、尺寸变了要重写而没变的不该每次启动重写
+（用 mtime 验，不是内容）、Kotlin 那边确实应答了 Dart 调的那个方法名。
+反向验过：`path` 改个扩展名 → 「the config points at the files unpacking creates」红；
+geoip 指回 sing-geosite → 「each from its own repository」红。
+
+门禁：`flutter analyze` 干净，146 个测试全通过（135 → 146），金标 11/11。
+APK 75.2MB，`unzip -l` 确认三个 `.srs` 都在 `assets/flutter_assets/assets/rule-sets/`，
+`.so` 仍只有 arm64 那一组。
 
 ---
 

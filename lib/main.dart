@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'data/rule_sets.dart';
 import 'data/storage.dart';
 import 'l10n/app_localizations.dart';
 import 'models/app_settings.dart';
@@ -26,11 +27,16 @@ import 'version.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final storage = await Storage.open();
+  // Before the first config is rendered: with the rule-sets on disk the engine
+  // starts without reaching the network, which is the difference between
+  // connecting and not on a filtered or offline link.
+  final ruleSetDir = await BundledRuleSets.prepare();
   runApp(
     SingBoxApp(
       state: AppState(
         storage: storage,
         controller: createProxyController(),
+        ruleSetDir: ruleSetDir,
       ),
     ),
   );

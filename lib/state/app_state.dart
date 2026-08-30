@@ -71,10 +71,12 @@ class AppState extends ChangeNotifier {
     required ProxyController controller,
     Importer? importer,
     LatencyTester? latencyTester,
+    String? ruleSetDir,
   })  : _storage = storage,
         _controller = controller,
         _importer = importer ?? Importer(),
-        _latencyTester = latencyTester ?? const LatencyTester() {
+        _latencyTester = latencyTester ?? const LatencyTester(),
+        _ruleSetDir = ruleSetDir {
     _nodes = _storage.readNodes();
     _subscriptions = _storage.readSubscriptions();
     _settings = _storage.readSettings();
@@ -112,6 +114,10 @@ class AppState extends ChangeNotifier {
   final ProxyController _controller;
   final Importer _importer;
   final LatencyTester _latencyTester;
+
+  /// Where the bundled `.srs` rule-sets were unpacked, or null if they are not
+  /// on disk — see [ConfigBuilder.build].
+  final String? _ruleSetDir;
 
   late List<ProxyNode> _nodes;
   late List<Subscription> _subscriptions;
@@ -454,6 +460,7 @@ class AppState extends ChangeNotifier {
         nodes: _nodes,
         selectedNodeId: selectedNode?.id,
         settings: _settings,
+        ruleSetDir: _ruleSetDir,
       );
 
   String _renderConfig() => ConfigBuilder.encode(_buildConfig());

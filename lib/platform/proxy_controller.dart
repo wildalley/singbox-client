@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import '../models/proxy_state.dart';
+import 'app_paths.dart';
 
 abstract interface class ProxyController {
   Stream<ProxyState> get states;
@@ -52,7 +53,7 @@ class AndroidProxyController implements ProxyController {
     );
   }
 
-  static const _method = MethodChannel('singbox/control');
+  static const _method = MethodChannel(appControlChannel);
   static const _events = EventChannel('singbox/events');
 
   final _stateController = StreamController<ProxyState>.broadcast();

@@ -129,6 +129,11 @@ class MainActivity : FlutterActivity() {
 
             "status" -> result.success(BoxEvents.statusMap())
 
+            // Where Dart unpacks the bundled rule-sets. Deliberately the same
+            // directory libbox is set up with (SetupOptions.basePath), so the
+            // files the config points at live beside the engine's own state.
+            "dataDir" -> result.success(filesDir.absolutePath)
+
             "version" -> result.success(
                 runCatching { io.nekohasekai.libbox.Libbox.version() }
                     .getOrDefault("unknown")

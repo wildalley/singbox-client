@@ -234,6 +234,79 @@ void main() {
     });
   });
 
+  group('rule sets', () {
+    /// Every rule-set declared in `route.rule_set`, by tag.
+    Map<String, Map<String, dynamic>> sets(Map<String, dynamic> config) {
+      final route = config['route'] as Map<String, dynamic>;
+      return {
+        for (final item in route['rule_set'] as List)
+          (item as Map)['tag'] as String: Map<String, dynamic>.from(item),
+      };
+    }
+
+    test('a rule-set directory makes them local, with no network fields', () {
+      // The whole point of bundling: sing-box initializes rule-sets during
+      // start and a failed fetch is fatal, so anything left reaching out here
+      // can abort the tunnel.
+      final config = ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(blockAds: true),
+        ruleSetDir: '/data/app/rule-sets',
+      );
+
+      final declared = sets(config);
+      expect(declared.keys,
+          containsAll(['geosite-cn', 'geoip-cn', 'geosite-ads']));
+      for (final entry in declared.entries) {
+        expect(entry.value['type'], 'local');
+        expect(entry.value['format'], 'binary');
+        expect(entry.value['path'], '/data/app/rule-sets/${entry.key}.srs');
+        expect(entry.value.keys,
+            isNot(anyOf(contains('url'), contains('download_detour'))));
+      }
+    });
+
+    test('without one they fall back to remote, each from its own repository',
+        () {
+      // geoip and geosite are separate repositories. geoip-cn under
+      // sing-geosite is a 404, which surfaces on the device as a rule-set
+      // download failure and reads like a network problem.
+      final declared = sets(ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(),
+      ));
+
+      expect(declared['geosite-cn']!['type'], 'remote');
+      expect(declared['geosite-cn']!['url'],
+          endsWith('sing-geosite/rule-set/geosite-geolocation-cn.srs'));
+      expect(declared['geoip-cn']!['url'],
+          endsWith('sing-geoip/rule-set/geoip-cn.srs'));
+    });
+
+    test('every referenced tag is declared, in both modes', () {
+      // A rule naming a rule-set that is not declared fails the whole start.
+      for (final dir in [null, '/data/app/rule-sets']) {
+        final config = ConfigBuilder.build(
+          nodes: [_node()],
+          selectedNodeId: 'n1',
+          settings: const AppSettings(blockAds: true),
+          ruleSetDir: dir,
+        );
+        final declared = sets(config).keys.toSet();
+        final referenced = <String>{
+          for (final section in [config['dns'], config['route']])
+            for (final rule in (section as Map)['rules'] as List)
+              ...?((rule as Map)['rule_set'] as List?)?.cast<String>(),
+        };
+
+        expect(referenced, isNotEmpty);
+        expect(declared, containsAll(referenced), reason: 'ruleSetDir: $dir');
+      }
+    });
+  });
+
   group('tun inbound', () {
     test('applies mtu, stack, and strict route from settings', () {
       final config = ConfigBuilder.build(

@@ -20,6 +20,12 @@ flutter:
   uses-material-design: true
   generate: true
 
+  assets:
+    # Routing rule-sets. Bundled rather than downloaded because sing-box treats
+    # a failed `remote` rule-set fetch as fatal at start — see
+    # lib/data/rule_sets.dart. Refresh with scripts/fetch-rule-sets.sh.
+    - assets/rule-sets/
+
   fonts:
     # Variable fonts: one file covers the whole weight range.
     - family: Inter
