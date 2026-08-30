@@ -6,6 +6,8 @@
 现状基线：`lib/ui/` 8 个文件约 3400 行，token 集中在 `lib/ui/theme.dart`
 （`AppPalette` theme extension + `Gap` + `AppFonts`），双主题与中英文已接通，
 73 个测试通过。本次改版只动表现层，不动 `lib/state/`、`lib/data/`、`lib/platform/`。
+（唯一的例外是后来「真机一轮」里那个引擎缺陷 —— 真机报错逼出了 `lib/data/`
+的一处 DNS 配置修复，那不属于改版，只是搭同一趟车。）
 
 ---
 
@@ -233,17 +235,17 @@ P0–P3 已完成。P4 三项中两项以自动化测试落地，第三项受硬
    所以浅色模式是约束方。扫描后取 .07（深色最差 4.63、浅色 4.56），
    收进 `tintFill()`，注释指向会先失败的那条断言。
 
-**CJK 回退** —— 真机未能验证（见下），改为静态断言，过程中查出第三个缺陷：
+**CJK 回退** —— 先做成静态断言（真机确认见「真机一轮」），过程中查出第三个缺陷：
 组件主题上的 `textStyle` 不与 `textTheme` 合并，按钮会把它作为新的
 `DefaultTextStyle` 装上、替换环境样式，所以裸写的 `TextStyle` 会同时丢掉 Inter
 和回退链 —— 中文按钮文字（含首屏「连接」）本会渲染成豆腐块。
 六处（三种按钮、snackbar、输入提示、导航栏标签）统一走 `_componentStyle()`，
 `component themes carry the fallback too` 守住。
 
-**未完成** —— 真机安装确认。release APK 已能打出（75.0MB，四个字体文件都在包内），
-但本机没有连接 adb 设备，`flutter devices` 只列出 Linux 桌面目标，装机那一步做不了。
-上面的静态断言只能证明每个样式都带了回退链，不能证明设备上的字体实际命中 ——
-`intensity` 系数（§5.3）同样还等真机对比。
+**当时未完成** —— 真机安装确认。release APK 已能打出（75.0MB，四个字体文件都在包内），
+但当时本机没有连接 adb 设备，`flutter devices` 只列出 Linux 桌面目标，装机那一步做不了。
+静态断言只能证明每个样式都带了回退链，不能证明设备上的字体实际命中。这一条后来补上了
+（见「真机一轮」）；`intensity` 系数（§5.3）仍等真机对比。
 
 打包环境（踩过的坑，记下来省得重找）：
 - 系统 `java` 是 **JRE**（`jre-openjdk`，26.0.2），没有 `javac`，Gradle 会以
@@ -291,6 +293,64 @@ P4 之后又走了两轮对照设计图的收口，都是算出来或量出来�
 
 门禁：`flutter analyze` 干净，123 个测试全通过（原 73 → 123），
 另有 11 个金标用例默认跳过。
+
+### 真机一轮
+
+用户把 release APK 侧载到手机上跑了一次，截图带回三件事 —— 一条确认、两个缺陷。
+两个缺陷互不相干（一个引擎、一个 UI），分开修。
+
+**确认：CJK 在设备上真的命中。** 截图里「夜深了」「连接状态一览」「连接失败」
+「实时流量」「下载」「上传」和五个导航标签（首页/节点/规则/日志/设置）全部正常出字，
+没有豆腐块 —— P4 只能静态断言的那一条，现在有实拍证据。
+
+**缺陷一：sing-box 起不来。** 三个远程 rule-set 全部下载失败，报
+`lookup raw.githubusercontent.com: read udp [::1]:59673->[::1]:53: connection refused`。
+链路一路查到底：`route.default_domain_resolver` 指向 `dns-local`（`type: local`）→
+libbox 去问 `PlatformInterface.localDNSTransport()` → 我们的 `BoxPlatform.kt` 返回
+`null` → libbox 退回 Go 自己的解析器读 `/etc/resolv.conf` → Android 上这个文件没有
+可用 nameserver → Go 默认打回环 → 每一次启动期查询都死在 `[::1]:53`。而远程
+rule-set 初始化失败在 sing-box 里是**致命**的（没有 per-rule-set 的 optional 开关），
+所以整个 start 被它带崩。
+
+改法是把依赖平台的 `local` 换成一台纯 UDP 的 `dns-bootstrap`：`server` 只填 IP 字面量
+（用户的 `directDnsHost` 本身是 IP 就复用它，否则退到 `223.5.5.5` —— AliDNS 墙内外
+都通），这样它自己不需要被解析，且 DNS server 默认直连、不需要隧道先起来。
+`dns-direct`（主机名形式）和 `route.default_domain_resolver` 两个消费方都指向它。
+注意 **不能**给它加 `'detour': direct`：空的 direct outbound 会被
+`common/dialer/detour.go` 在启动时判为「detour to an empty direct outbound makes no
+sense」直接拒绝。真正让它在隧道外走通的是 `autoDetectInterfaceControl`
+（`BoxPlatform.kt:103`），而不是 detour。
+
+顺带把 `_remoteRuleSet` 的 `download_detour` 从 `direct` 改成 `proxy`：这几个是 CN
+rule-set，需要它们的用户恰恰就是直连不到 raw.githubusercontent.com 的用户，`direct`
+对目标受众必然失败。出口节点自己的地址由上面那台 bootstrap 解析，所以下载这一步
+不依赖它正在下载的东西。
+
+两处都是纯配置改动，`BoxPlatform.kt` 没动 —— 认真实现 `localDNSTransport()` 是另一条
+更大的路。**离线启动仍然会失败**，这是 sing-box 的设计（远程 rule-set 初始化致命），
+要修得把 `.srs` 打进包里，这一轮没做。
+
+**缺陷二：长引擎错误糊满首屏。** 那条几百字符的错误无界渲染，压过连接拨盘、
+「连接」按钮和实时流量卡片，身后还透出一份正确截断的副本。第一个假设（`notice_text.dart`
+或拨盘的固定高度盒子）读代码就被排除了 —— `_stageDetail` 两个渲染点早就带
+`maxLines: 2` + ellipsis。真凶是 `lib/main.dart` 里 `SnackBar(content: Text(...))`
+根本没设上限，而 `SnackBarBehavior.floating` 会无限向上长；「两份重叠」则是那条
+`backgroundColor` 用了 18% alpha 的半透明 danger，底下的拨盘直接读穿上来。
+改成 `maxLines: 3` + ellipsis（全文在日志页，这里是警报不是报告），背景用
+`Color.alphaBlend` 预合成成不透明。回归测试用截图里那条一字不改的设备原文喂进去 ——
+其它测试全都只喂短消息，这正是它能溜出去的原因；把 clamp 撤掉能让新测试红，装回去变绿。
+
+**金标的时钟接缝。** 上面的改动一个像素都没碰，却有六张金标变红
+（首屏三张 + 浅色 + 中文 + nodes）。没有盲目重录：读
+`test/failures/*_isolatedDiff.png` 看到首屏的差异只是「evening」一个词、nodes 的差异
+是「N 天前」那一段 —— 根因是 UI 里五处 `DateTime.now()`，隔了一夜问候语从晚上翻成
+早上、订阅又老了一天。加 `lib/ui/clock.dart` 一个 `clockNow` 接缝把这五处收口，
+截图 harness 里 `pinClock(DateTime(2026, 8, 29, 21, 30))`（选傍晚，命中设计评审时看的
+那条问候语分支）。`--update-goldens` 跑完 `git status test/snapshots/` 一个字节没变 ——
+金标本来就是对的，只是需要把时钟钉住。
+
+门禁：`flutter analyze` 干净，127 个测试全通过（123 → 127：三个 bootstrap DNS 配置
+测试 + 一个 snackbar 截断回归），金标 11/11 在钉住的时钟下通过。
 
 ---
 

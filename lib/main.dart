@@ -140,9 +140,25 @@ class _AppShellState extends State<AppShell> {
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(
-          content: Text(noticeText(L10n.of(context), notice)),
-          backgroundColor:
-              notice.isError ? palette.danger.withValues(alpha: .18) : null,
+          // Engine errors run to several hundred characters — a sing-box
+          // rule-set failure quotes a URL and a socket address per rule-set.
+          // Unbounded, that laid the whole string over the dial, the connect
+          // button and the traffic card. The full text is in the logs page;
+          // this is the alert, not the report.
+          content: Text(
+            noticeText(L10n.of(context), notice),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          backgroundColor: notice.isError
+              // Pre-composited, not translucent. At 18% alpha the dial and its
+              // rings read straight through the bar, which is what made one
+              // long error look like two overlapping copies of itself.
+              ? Color.alphaBlend(
+                  palette.danger.withValues(alpha: .18),
+                  palette.surface3,
+                )
+              : null,
         ),
       );
   }

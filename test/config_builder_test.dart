@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singbox_client/data/config_builder.dart';
@@ -350,7 +351,66 @@ void main() {
           .firstWhere((item) => item['tag'] == 'dns-direct');
 
       expect(direct['server'], 'dns.alidns.com');
-      expect((direct['domain_resolver'] as Map)['server'], 'dns-local');
+      expect((direct['domain_resolver'] as Map)['server'], 'dns-bootstrap');
+    });
+
+    test('the bootstrap resolver is plain UDP at an IP literal', () {
+      // The one lookup path that runs before the tunnel exists. It used to be
+      // `{'type': 'local'}`, which delegates to PlatformInterface — and our
+      // Android localDNSTransport() returns null, so libbox fell back to Go
+      // reading /etc/resolv.conf, found no nameserver, and sent every startup
+      // query to loopback: "read udp [::1]:53: connection refused".
+      final config = ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(),
+      );
+
+      final servers = ((config['dns'] as Map)['servers'] as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      final bootstrap =
+          servers.firstWhere((item) => item['tag'] == 'dns-bootstrap');
+
+      expect(bootstrap['type'], 'udp');
+      expect(InternetAddress.tryParse(bootstrap['server'] as String),
+          isNotNull);
+      expect(bootstrap.containsKey('detour'), isFalse,
+          reason: 'must reach the network without the tunnel');
+      expect(servers.any((item) => item['type'] == 'local'), isFalse,
+          reason: 'type: local needs a platform transport we do not provide');
+    });
+
+    test('the bootstrap resolver reuses an IP direct DNS host', () {
+      final config = ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(dnsDirect: 'udp://119.29.29.29'),
+      );
+
+      final bootstrap = ((config['dns'] as Map)['servers'] as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .firstWhere((item) => item['tag'] == 'dns-bootstrap');
+
+      expect(bootstrap['server'], '119.29.29.29');
+    });
+
+    test('a hostname direct DNS host does not become the bootstrap', () {
+      // Resolving that hostname is the very job the bootstrap server exists to
+      // do, so it has to fall back to a literal.
+      final config = ConfigBuilder.build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings:
+            const AppSettings(dnsDirect: 'https://dns.alidns.com/dns-query'),
+      );
+
+      final bootstrap = ((config['dns'] as Map)['servers'] as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .firstWhere((item) => item['tag'] == 'dns-bootstrap');
+
+      expect(InternetAddress.tryParse(bootstrap['server'] as String),
+          isNotNull);
     });
 
     test('fakeip adds its server and is reflected in the cache file', () {

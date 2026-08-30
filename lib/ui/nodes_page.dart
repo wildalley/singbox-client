@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../models/node.dart';
 import '../models/subscription.dart';
 import '../state/app_state.dart';
+import 'clock.dart';
 import 'import_sheet.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -283,14 +284,14 @@ class _SubscriptionSection extends StatelessWidget {
       parts.add(l10n.nodesUpdatedAgo(_ago(l10n, subscription.updatedAt!)));
     }
     if (subscription.expiresAt != null) {
-      final days = subscription.expiresAt!.difference(DateTime.now()).inDays;
+      final days = subscription.expiresAt!.difference(clockNow()).inDays;
       parts.add(days >= 0 ? l10n.nodesDaysLeft(days) : l10n.nodesExpired);
     }
     return parts.join(' · ');
   }
 
   static String _ago(L10n l10n, DateTime time) {
-    final delta = DateTime.now().difference(time);
+    final delta = clockNow().difference(time);
     if (delta.inMinutes < 1) return l10n.agoJustNow;
     if (delta.inHours < 1) return l10n.agoMinutes(delta.inMinutes);
     if (delta.inDays < 1) return l10n.agoHours(delta.inHours);

@@ -124,12 +124,26 @@ class ConfigBuilder {
         // hostname (rather than an IP) has to name its resolver here or start
         // fails with "missing domain resolver for domain server address".
         if (!_isIpLiteral(settings.directDnsHost))
-          'domain_resolver': {'server': 'dns-local'},
+          'domain_resolver': {'server': 'dns-bootstrap'},
       },
-      // System resolver, used to bootstrap the servers above.
+      // Bootstrap resolver: the one lookup path that has to work *before* the
+      // tunnel exists, so it must not depend on either.
+      //
+      // This was `{'type': 'local'}`, which delegates to the platform. Android
+      // only answers that if PlatformInterface.localDNSTransport() is
+      // implemented; ours returns null, so libbox fell back to Go's resolver
+      // reading /etc/resolv.conf — a file with no usable nameserver on Android.
+      // Go then defaults to loopback and every startup lookup died with
+      // "read udp [::1]:53: connection refused", taking the remote rule-set
+      // downloads (and therefore the whole start) with it.
+      //
+      // Plain UDP at an IP literal needs no resolver to be reached itself, and
+      // a DNS server dials directly by default, so this works on a bare
+      // network interface with no tunnel up.
       {
-        'type': 'local',
-        'tag': 'dns-local',
+        'type': 'udp',
+        'tag': 'dns-bootstrap',
+        'server': _bootstrapDnsHost(settings),
       },
     ];
 
@@ -247,8 +261,10 @@ class ConfigBuilder {
         RoutingMode.rule => ConfigTags.proxy,
       },
       'auto_detect_interface': true,
+      // Resolves the rule-set download URLs, which happens at start before any
+      // tunnel exists — so it has to be the bootstrap server, not `local`.
       'default_domain_resolver': {
-        'server': 'dns-local',
+        'server': 'dns-bootstrap',
       },
     };
   }
@@ -261,7 +277,13 @@ class ConfigBuilder {
       'format': 'binary',
       'url':
           'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/$kind-$name.srs',
-      'download_detour': ConfigTags.direct,
+      // Through the tunnel, not around it. These are the CN rule-sets, so the
+      // user fetching them is the user who cannot reach raw.githubusercontent
+      // .com directly; `direct` here fails for exactly the audience it serves.
+      // The exit node can reach GitHub, and the node's own address is resolved
+      // by route.default_domain_resolver (the plain-UDP bootstrap above), so
+      // this does not need the rule-sets it is downloading.
+      'download_detour': ConfigTags.proxy,
       'update_interval': '7d',
     };
   }
@@ -285,10 +307,27 @@ class ConfigBuilder {
     return cleaned.length > 40 ? cleaned.substring(0, 40) : cleaned;
   }
 
+  /// Plain-UDP address for the bootstrap resolver.
+  ///
+  /// Reuses the direct DNS host when the user already gave an IP literal, so
+  /// one setting covers both and a user behind a filtered path can redirect the
+  /// bootstrap too. A DoH/DoT hostname cannot serve here — resolving it is the
+  /// very thing this server exists to do — so those fall back to a public
+  /// anycast address.
+  static String _bootstrapDnsHost(AppSettings settings) {
+    final direct = settings.directDnsHost;
+    return _isIpLiteral(direct) ? direct : _fallbackBootstrapDns;
+  }
+
+  /// AliDNS: reachable from inside and outside mainland China, which is where
+  /// the bundled rule-sets are aimed.
+  static const _fallbackBootstrapDns = '223.5.5.5';
+
   /// Whether [host] is a bare IP address rather than a hostname.
   ///
-  /// Only used to decide whether a DNS server needs its own `domain_resolver`;
-  /// the IP form needs no resolution, so it must not carry one.
+  /// Decides both whether a DNS server needs its own `domain_resolver` (the IP
+  /// form needs no resolution, so it must not carry one) and whether a host can
+  /// serve as the bootstrap resolver.
   static bool _isIpLiteral(String host) {
     final bare = host.startsWith('[') && host.endsWith(']')
         ? host.substring(1, host.length - 1)

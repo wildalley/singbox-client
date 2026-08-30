@@ -174,6 +174,55 @@ void main() {
     expect(find.text('VPN permission denied'), findsOneWidget);
   });
 
+  testWidgets('a long engine error stays inside its snackbar', (tester) async {
+    // Verbatim from a device: three rule-sets failing DNS, each quoting a URL
+    // and a socket address. Unbounded, this laid itself across the dial, the
+    // connect button and the traffic card. Every other test seeds a short
+    // message, which is exactly why that shipped.
+    const engineError =
+        'initialize rule-set[2]: initial rule-set: geosite-ads: Get '
+        '"https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/'
+        'geosite-category-ads-all.srs": lookup raw.githubusercontent.com: '
+        'read udp [::1]:59673->[::1]:53: read: connection refused | '
+        'initialize rule-set[1]: initial rule-set: geoip-cn: Get '
+        '"https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/'
+        'geoip-cn.srs": lookup raw.githubusercontent.com: read udp '
+        '[::1]:59673->[::1]:53: read: connection refused | '
+        'initialize rule-set[0]: initial rule-set: geosite-cn: Get '
+        '"https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/'
+        'geosite-geolocation-cn.srs": lookup raw.githubusercontent.com: '
+        'read udp [::1]:59673->[::1]:53: read: connection refused';
+
+    final harness = await buildState(nodes: [node('a', 'HK-1')]);
+    addTearDown(harness.state.dispose);
+
+    await tester.pumpWidget(SingBoxApp(state: harness.state));
+    await tester.pumpAndSettle();
+
+    harness.controller.emit(const ProxyState(
+      stage: ProxyStage.error,
+      message: engineError,
+    ));
+    await tester.pumpAndSettle();
+
+    // An unbounded paragraph in a floating snackbar overflows its bar, and a
+    // RenderFlex/paint overflow is an exception in tests.
+    expect(tester.takeException(), isNull);
+
+    // Both places the message surfaces are clamped: the snackbar and the dial's
+    // detail line under it.
+    final texts = tester
+        .widgetList<Text>(find.byType(Text))
+        .where((text) => (text.data ?? '').contains('rule-set'))
+        .toList();
+    expect(texts, isNotEmpty, reason: 'the error should reach the screen');
+    for (final text in texts) {
+      expect(text.maxLines, isNotNull,
+          reason: 'engine text must be clamped: ${text.data?.substring(0, 40)}');
+      expect(text.overflow, TextOverflow.ellipsis);
+    }
+  });
+
   testWidgets('traffic events reach the home screen', (tester) async {
     final harness = await buildState(nodes: [node('a', 'Tokyo')]);
     addTearDown(harness.state.dispose);

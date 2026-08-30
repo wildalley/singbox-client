@@ -14,6 +14,7 @@ import '../l10n/app_localizations.dart';
 import '../models/node.dart';
 import '../models/proxy_state.dart';
 import '../state/app_state.dart';
+import 'clock.dart';
 import 'components.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -141,7 +142,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   static String _greeting(L10n l10n) {
-    final hour = DateTime.now().hour;
+    final hour = clockNow().hour;
     if (hour < 5) return l10n.greetingNight;
     if (hour < 12) return l10n.greetingMorning;
     if (hour < 18) return l10n.greetingAfternoon;
@@ -180,7 +181,7 @@ String _stageDetail(L10n l10n, AppState state) {
     ProxyStage.connected => proxy.since == null
         ? l10n.homeProtected
         : l10n.homeProtectedFor(
-            formatUptime(DateTime.now().difference(proxy.since!))),
+            formatUptime(clockNow().difference(proxy.since!))),
     // Engine messages are not translatable; they arrive already redacted.
     ProxyStage.error => proxy.message ?? l10n.homeCheckTheLogs,
     _ => state.nodes.isEmpty ? l10n.homeNoNodesYet : l10n.homeReadyToConnect,
@@ -521,7 +522,7 @@ class _HeroCard extends StatelessWidget {
                         label: l10n.homeUptime,
                         value: connected && proxy.since != null
                             ? formatUptime(
-                                DateTime.now().difference(proxy.since!))
+                                clockNow().difference(proxy.since!))
                             : '—',
                       ),
                     ),

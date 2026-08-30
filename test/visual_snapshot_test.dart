@@ -21,11 +21,22 @@ import 'package:singbox_client/models/node.dart';
 import 'package:singbox_client/models/proxy_state.dart';
 import 'package:singbox_client/models/subscription.dart';
 import 'package:singbox_client/state/app_state.dart';
+import 'package:singbox_client/ui/clock.dart';
 import 'package:singbox_client/ui/theme.dart' show AppFonts;
 
 import 'widget_test.dart' show FakeProxyController;
 
 final _run = Platform.environment['VISUAL_SNAPSHOTS'] == '1';
+
+/// The instant every snapshot renders at.
+///
+/// Four strings on these screens are derived from "now": the greeting, the
+/// uptime line, and the subscription's "updated N ago" / "N days left". Left on
+/// the real clock, six of the eleven goldens went red the next morning on a run
+/// that had changed nothing — the greeting had turned over from evening to
+/// morning and the subscription had aged a day. Evening, so the greeting branch
+/// under test is the one the design was reviewed against.
+final _pinnedNow = DateTime(2026, 8, 29, 21, 30);
 
 /// Real font faces so the snapshots show the shipped typography instead of the
 /// test font. Same names as pubspec.yaml declares.
@@ -151,7 +162,7 @@ Future<({AppState state, FakeProxyController controller})> _harness({
   if (connected) {
     controller.emit(ProxyState(
       stage: ProxyStage.connected,
-      since: DateTime.now().subtract(const Duration(hours: 4, minutes: 12)),
+      since: _pinnedNow.subtract(const Duration(hours: 4, minutes: 12)),
     ));
     // Enough samples for a shaped sparkline: a slow build, a peak, a dip.
     const shape = [
@@ -218,6 +229,9 @@ Future<void> _shot(
     ..physicalSize = size
     ..devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+
+  pinClock(_pinnedNow);
+  addTearDown(resetClock);
 
   final harness = await _harness(
     connected: connected,
