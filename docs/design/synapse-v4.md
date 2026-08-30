@@ -352,6 +352,42 @@ rule-set，需要它们的用户恰恰就是直连不到 raw.githubusercontent.c
 门禁：`flutter analyze` 干净，127 个测试全通过（123 → 127：三个 bootstrap DNS 配置
 测试 + 一个 snackbar 截断回归），金标 11/11 在钉住的时钟下通过。
 
+### 应用图标
+
+之前一直是 Flutter 模板那个默认图标（`mipmap-xxxhdpi/ic_launcher.png` 与模板文件
+md5 完全一致），所以没有「现有的」可用，重画了一个。
+
+标记就是首屏那个连接拨盘：缺口开在正下方的 300° 仪表环 + 从环起点填起的薄荷色扇段 +
+中心实心的节点。颜色全部取自 `AppPalette.dark`，没有引入新色值 —— 底 `bg`，环
+`violetSoft`（守「violet 只做填充，前景用 violetSoft」那条规矩），扇段和节点 `mint`，
+再加一层 22% 的 violet 径向光晕，和应用自己在拨盘后面画的那层同一个做法。
+
+交付四层：
+- `drawable/ic_launcher_background.xml` + `ic_launcher_foreground.xml` ——
+  API 26+ 的自适应图标，矢量。前景几何半径 27.5 + 7 宽描边 = 触及 r=31，落在 66dp
+  安全圆（r=33）以内，这是唯一一条会被各家启动器静默裁掉的规则。
+- `ic_launcher_monochrome.xml` —— Android 13 主题图标层。启动器只取 alpha，
+  所以把双色去掉：薄荷扇段本来就压在环上，拍平之后是隐形的。
+- `mipmap-*dpi/ic_launcher.png` 五档 —— minSdk 是 24，Android 7.x 还吃这套。
+  pre-26 系统不替你切圆角，所以这份 PNG 自带圆角方板，而自适应那两层把形状交给系统遮罩。
+- 母版 `docs/design/icon/ic_launcher.svg` + `scripts/build-icons.sh`
+  （rsvg-convert 出图，不进构建流程，改完 SVG 要重跑并提交 PNG）。
+
+`test/app_icon_test.dart` 直接读打进包的资源而不是复述它们：图标色必须**是**
+palette 里的色（调色板一改，图标漂移就红）、前景对最坏情况底色（光晕正中心那次混合，
+不是裸底色）≥ 3:1、几何不越安全圆、五档 PNG 存在且尺寸对（读 IHDR）、自适应 XML
+三层都在。反向验过：把环改成 `violet` 会红在「foregrounds take violetSoft」，
+把半径推到 31.5 会红在「reaches outside the safe circle」。
+
+APK 里也核过：`aapt2 dump resources` 列出 mipmap/ic_launcher 的五档 PNG 加
+anydpi-v26 的 XML，`dump xmltree` 确认三层都绑到了真实 drawable。
+
+**没做**：`roundIcon`（只有 API 25 的圆形启动器会用，缺了会优雅回退到方图），
+以及 web/windows 那两个 scaffold 目录里的默认图标 —— 那两个平台跑不了这个应用
+（libbox 只有 arm64 的 Android 库）。另外启动闪屏还是模板的白底
+（`launch_background.xml` → `@android:color/white`），在一个近黑的应用前面会闪一下白，
+这是独立的一处，没顺手改。
+
 ---
 
 ## 5. 待定项

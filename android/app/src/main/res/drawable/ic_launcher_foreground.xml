@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon foreground (API 26+): the home screen's connection dial.
+     A gauge ring with its gap at the bottom, a mint segment filling from the
+     ring's start, and the selected node as a solid core.
+
+     Geometry is a circle of r=27.5 about (54,54) with a 7-wide stroke, so the
+     mark reaches r=31 — inside the 66dp safe circle (r=33) that every launcher
+     mask is guaranteed to show. Same paths as docs/design/icon/ic_launcher.svg,
+     which is the master; edits go to both. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Dial ring, 300° with the gap centred at the bottom. -->
+    <path
+        android:pathData="M40.25,77.82 A27.5,27.5 0 1 1 67.75,77.82"
+        android:strokeColor="#FFB9A9FF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round" />
+    <!-- The filled quarter, drawn over the ring's start. -->
+    <path
+        android:pathData="M40.25,77.82 A27.5,27.5 0 0 1 30.18,40.25"
+        android:strokeColor="#FF22E1A6"
+        android:strokeWidth="7"
+        android:strokeLineCap="round" />
+    <!-- The node. -->
+    <path
+        android:fillColor="#FF22E1A6"
+        android:pathData="M54,45.5 A8.5,8.5 0 1 1 54,62.5 A8.5,8.5 0 1 1 54,45.5 Z" />
+</vector>
