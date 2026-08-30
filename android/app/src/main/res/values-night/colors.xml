@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark counterpart of values/colors.xml: AppPalette.dark.bg. -->
+<resources>
+    <color name="splash_background">#FF000E13</color>
+</resources>

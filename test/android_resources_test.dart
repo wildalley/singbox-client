@@ -1,7 +1,7 @@
-/// The launcher icon lives in XML and PNG, so neither the analyzer nor the
-/// widget tests can see it drift away from the palette it was drawn from, or
-/// out of the safe circle every launcher mask crops to. These read the shipped
-/// resources rather than restating them.
+/// The launcher icon and the launch splash live in XML and PNG, so neither the
+/// analyzer nor the widget tests can see them drift away from the palette they
+/// were drawn from — or, for the icon, out of the safe circle every launcher
+/// mask crops to. These read the shipped resources rather than restating them.
 library;
 
 import 'dart:io';
@@ -100,23 +100,84 @@ void main() {
         'xxhdpi': 144,
         'xxxhdpi': 192,
       };
-      for (final entry in expected.entries) {
-        final file = File('$_res/mipmap-${entry.key}/ic_launcher.png');
-        expect(file.existsSync(), isTrue, reason: '${entry.key} icon missing');
-        // IHDR: 8-byte signature, 4-byte length, 4-byte type, then w and h as
-        // big-endian 32-bit ints.
-        final header = ByteData.sublistView(file.readAsBytesSync(), 16, 24);
-        expect(header.getUint32(0), entry.value, reason: '${entry.key} width');
-        expect(header.getUint32(4), entry.value, reason: '${entry.key} height');
+      for (final name in ['ic_launcher', 'ic_launcher_round']) {
+        for (final entry in expected.entries) {
+          final file = File('$_res/mipmap-${entry.key}/$name.png');
+          expect(file.existsSync(), isTrue,
+              reason: '$name missing at ${entry.key}');
+          // IHDR: 8-byte signature, 4-byte length, 4-byte type, then w and h as
+          // big-endian 32-bit ints.
+          final header = ByteData.sublistView(file.readAsBytesSync(), 16, 24);
+          expect(header.getUint32(0), entry.value,
+              reason: '$name ${entry.key} width');
+          expect(header.getUint32(4), entry.value,
+              reason: '$name ${entry.key} height');
+        }
       }
     });
 
-    test('the adaptive icon names all three layers', () {
-      final xml = _xml('mipmap-anydpi-v26/ic_launcher.xml');
-      for (final layer in ['background', 'foreground', 'monochrome']) {
-        expect(xml, contains('<$layer android:drawable="@drawable/'
-            'ic_launcher_$layer"'));
+    test('both entry points resolve, and the round one is really round', () {
+      // The manifest names two icons; API 25 is the only level that asks for
+      // the round one, and it gets a PNG, so the two sets must not be copies of
+      // each other — a square plate inside a circular hole is the bug this
+      // guards.
+      final manifest = File('android/app/src/main/AndroidManifest.xml')
+          .readAsStringSync();
+      expect(manifest, contains('android:icon="@mipmap/ic_launcher"'));
+      expect(manifest,
+          contains('android:roundIcon="@mipmap/ic_launcher_round"'));
+      for (final name in ['ic_launcher', 'ic_launcher_round']) {
+        final xml = _xml('mipmap-anydpi-v26/$name.xml');
+        for (final layer in ['background', 'foreground', 'monochrome']) {
+          expect(
+              xml,
+              contains('<$layer android:drawable="@drawable/'
+                  'ic_launcher_$layer"'),
+              reason: '$name is missing its $layer layer');
+        }
       }
+      expect(
+        File('$_res/mipmap-xxxhdpi/ic_launcher.png').readAsBytesSync(),
+        isNot(File('$_res/mipmap-xxxhdpi/ic_launcher_round.png')
+            .readAsBytesSync()),
+      );
+    });
+  });
+
+  group('launch splash', () {
+    test('is the app background in both ui modes, never the template white', () {
+      // The window the OS paints before Flutter's first frame. It shipped as
+      // the template's white, which flashed in front of a near-black app.
+      final day = _colors(_xml('values/colors.xml'));
+      final night = _colors(_xml('values-night/colors.xml'));
+      expect(day.single.toARGB32(), AppPalette.light.bg.toARGB32());
+      expect(night.single.toARGB32(), AppPalette.dark.bg.toARGB32());
+    });
+
+    test('every window background points at that colour', () {
+      // Three of them: the splash drawable, and NormalTheme in each ui mode —
+      // the last one is what shows between the splash and the first frame.
+      expect(_xml('drawable/launch_background.xml'),
+          contains('android:drawable="@color/splash_background"'));
+      for (final styles in ['values/styles.xml', 'values-night/styles.xml']) {
+        final xml = _xml(styles);
+        expect(xml, isNot(contains('?android:colorBackground')),
+            reason: '$styles would inherit the parent theme\'s white or black');
+        expect(
+          RegExp(r'name="android:windowBackground">@(color/splash_background'
+                  r'|drawable/launch_background)<')
+              .allMatches(xml)
+              .length,
+          2,
+          reason: '$styles must set both LaunchTheme and NormalTheme',
+        );
+      }
+    });
+
+    test('the drawable has no API-qualified twin left to fall out of sync', () {
+      // minSdk is 24, so the template's drawable-v21/ copy always won and the
+      // unqualified one was dead. Only one file now.
+      expect(Directory('$_res/drawable-v21').existsSync(), isFalse);
     });
   });
 }

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Round launcher icon, master source. Same mark and same colours as
+  ic_launcher.svg — only the plate differs, a full circle instead of a rounded
+  square. Rasterized by scripts/build-icons.sh.
+
+  Only Android 7.1 (API 25) launchers ask for this: 24 has no roundIcon
+  attribute and 26+ takes the adaptive icon and masks it itself. It exists so
+  that the one release where round launchers were a thing does not fall back to
+  a square plate inside a circular hole.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108"
+     viewBox="0 0 108 108">
+  <defs>
+    <radialGradient id="glow" cx="54" cy="54" r="54"
+                    gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6C40FF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#6C40FF" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="plate">
+      <circle cx="54" cy="54" r="52"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#plate)">
+    <circle cx="54" cy="54" r="52" fill="#000E13"/>
+    <rect x="0" y="0" width="108" height="108" fill="url(#glow)"/>
+  </g>
+
+  <g transform="translate(54,54) scale(1.18) translate(-54,-54)"
+     fill="none" stroke-linecap="round">
+    <path d="M40.25,77.82 A27.5,27.5 0 1 1 67.75,77.82"
+          stroke="#B9A9FF" stroke-width="7"/>
+    <path d="M40.25,77.82 A27.5,27.5 0 0 1 30.18,40.25"
+          stroke="#22E1A6" stroke-width="7"/>
+    <circle cx="54" cy="54" r="8.5" fill="#22E1A6"/>
+  </g>
+</svg>

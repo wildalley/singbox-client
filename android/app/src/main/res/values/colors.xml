@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The window background the OS paints before Flutter's first frame, and
+     behind the Flutter UI afterwards. Both themes' windowBackground point here.
+
+     It has to be the app's own background: the template's white left a flash in
+     front of a near-black app. values-night/ carries the dark value, so this
+     follows the system exactly the way AppThemeMode.system (the default) does.
+     Not the Material palette's white/black — AppPalette's bg, so the handoff to
+     the first frame is invisible rather than merely dark. -->
+<resources>
+    <color name="splash_background">#FFF4F6F8</color>
+</resources>

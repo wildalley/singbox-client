@@ -368,25 +368,49 @@ md5 完全一致），所以没有「现有的」可用，重画了一个。
   安全圆（r=33）以内，这是唯一一条会被各家启动器静默裁掉的规则。
 - `ic_launcher_monochrome.xml` —— Android 13 主题图标层。启动器只取 alpha，
   所以把双色去掉：薄荷扇段本来就压在环上，拍平之后是隐形的。
-- `mipmap-*dpi/ic_launcher.png` 五档 —— minSdk 是 24，Android 7.x 还吃这套。
-  pre-26 系统不替你切圆角，所以这份 PNG 自带圆角方板，而自适应那两层把形状交给系统遮罩。
-- 母版 `docs/design/icon/ic_launcher.svg` + `scripts/build-icons.sh`
-  （rsvg-convert 出图，不进构建流程，改完 SVG 要重跑并提交 PNG）。
+- `mipmap-*dpi/ic_launcher.png` 与 `ic_launcher_round.png` 各五档 —— minSdk 是 24，
+  Android 7.x 还吃这套。pre-26 系统不替你切形状，所以这两份 PNG 自带底板
+  （圆角方 / 整圆），而自适应那两层把形状交给系统遮罩。
+- 母版 `docs/design/icon/ic_launcher.svg`、`ic_launcher_round.svg` +
+  `scripts/build-icons.sh`（rsvg-convert 出图，不进构建流程，改完 SVG 要重跑并提交 PNG）。
 
-`test/app_icon_test.dart` 直接读打进包的资源而不是复述它们：图标色必须**是**
+`test/android_resources_test.dart` 直接读打进包的资源而不是复述它们：图标色必须**是**
 palette 里的色（调色板一改，图标漂移就红）、前景对最坏情况底色（光晕正中心那次混合，
-不是裸底色）≥ 3:1、几何不越安全圆、五档 PNG 存在且尺寸对（读 IHDR）、自适应 XML
-三层都在。反向验过：把环改成 `violet` 会红在「foregrounds take violetSoft」，
+不是裸底色）≥ 3:1、几何不越安全圆、两套 PNG 五档都存在且尺寸对（读 IHDR）、
+方图和圆图的字节必须不同（否则就是圆孔里塞方板）、两个入口的自适应 XML 三层都在。
+反向验过：把环改成 `violet` 会红在「foregrounds take violetSoft」，
 把半径推到 31.5 会红在「reaches outside the safe circle」。
 
-APK 里也核过：`aapt2 dump resources` 列出 mipmap/ic_launcher 的五档 PNG 加
-anydpi-v26 的 XML，`dump xmltree` 确认三层都绑到了真实 drawable。
+APK 里也核过：`aapt2 dump resources` 列出 `mipmap/ic_launcher` 和
+`mipmap/ic_launcher_round` 各自的五档 PNG 加 anydpi-v26 的 XML，
+`dump xmltree` 确认 manifest 的 `icon`/`roundIcon` 指向这两个、且三层都绑到真实 drawable。
 
-**没做**：`roundIcon`（只有 API 25 的圆形启动器会用，缺了会优雅回退到方图），
-以及 web/windows 那两个 scaffold 目录里的默认图标 —— 那两个平台跑不了这个应用
-（libbox 只有 arm64 的 Android 库）。另外启动闪屏还是模板的白底
-（`launch_background.xml` → `@android:color/white`），在一个近黑的应用前面会闪一下白，
-这是独立的一处，没顺手改。
+`roundIcon` 只有 API 25 的圆形启动器会问，所以 `ic_launcher_round.svg` 只换了底板
+（整圆代替圆角方），标记和配色一字不改；26+ 两个入口都走同一套自适应层，形状归系统。
+
+**没做**：web/windows 那两个 scaffold 目录里的默认图标 —— 那两个平台跑不了这个应用
+（libbox 只有 arm64 的 Android 库）。
+
+### 启动闪屏
+
+模板留下的白底（`launch_background.xml` → `@android:color/white`）在一个近黑的应用
+前面会闪一下白。改成 `@color/splash_background`，`values/` 是 `AppPalette.light.bg`、
+`values-night/` 是 `dark.bg` —— 跟随系统，正好和 `AppThemeMode.system`（默认值）一致。
+
+不止闪屏那一层：`NormalTheme` 的 `windowBackground` 原本是 `?android:colorBackground`,
+由父主题决定（`Theme.Light` → 白、`Theme.Black` → 纯黑），而这个窗口在闪屏撤掉、
+Flutter 第一帧画出来之间是可见的，之后还一直在 UI 背后。两套 styles 都指到同一个颜色，
+所以交接是隐形的，而不只是「差不多黑」。
+
+顺手删了 `drawable-v21/launch_background.xml`：minSdk 是 24，`-v21` 永远命中，
+未限定的那份是死文件 —— 留着只会有两份互相漂移的可能。
+
+踩到一个坑：删掉 `-v21` 那份的同一次构建里报
+`resource drawable/launch_background not found`，文件明明在。是 AGP 资源合并的增量状态
+和「同名文件一个被删、一个被改」对不上，`flutter clean` 后干净通过 —— 不是真的资源错误。
+
+门禁：`flutter analyze` 干净，135 个测试全通过（127 → 135：8 个 Android 资源测试），
+金标 11/11。
 
 ---
 
