@@ -28,7 +28,7 @@ android/app/libs/*.aar
 # navigation into the generated Java bindings.
 android/app/libs/*-sources.jar
 
-# Packaging output: scripts/package.sh writes the deb, AppImage and APK here.
+# Packaging output: scripts/package.sh writes the deb, Arch package and APK here.
 dist/
 
 # Golden-test diff output. Written by flutter_test when a snapshot mismatches,

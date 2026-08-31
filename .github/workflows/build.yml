@@ -1,8 +1,8 @@
 name: build
 
-# Produces the artifacts the README documents — deb, AppImage, and an arm64 APK
-# — on a runner that has the JDK, Android SDK and NDK a desktop checkout usually
-# does not.
+# Produces the artifacts the README documents — a deb, an Arch .pkg.tar.zst, and
+# an arm64 APK — on runners that have the JDK, Android SDK and NDK a desktop
+# checkout usually does not.
 #
 # The APK is signed with the debug key, exactly as android/app/build.gradle.kts
 # already does. It is a test build, not a distributable one; see "Known gaps".
@@ -61,23 +61,19 @@ jobs:
       - run: flutter test
 
   package:
-    name: deb + AppImage + APK
+    name: deb + APK
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # the release step, on tags only
     steps:
       - uses: actions/checkout@v4
 
       # clang/cmake/ninja/gtk: Flutter's Linux desktop toolchain. librsvg2-bin
-      # gives scripts/package.sh rsvg-convert for the icon set;
-      # desktop-file-utils gives appimagetool desktop-file-validate.
+      # gives scripts/package.sh rsvg-convert for the icon set.
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev \
-            librsvg2-bin desktop-file-utils
+            libgtk-3-dev liblzma-dev librsvg2-bin
 
       # JDK 17 exactly: scripts/build-libbox.sh rejects any other release,
       # because gomobile's generated Java targets it.
@@ -127,57 +123,113 @@ jobs:
 
       - run: flutter --version
 
-      # appimagetool has no apt package, and this workflow does not pick a
-      # download source for you. To get an AppImage out of CI, set the
-      # APPIMAGETOOL_URL repository variable (Settings -> Secrets and variables
-      # -> Actions -> Variables) to a build you trust, and APPIMAGETOOL_SHA256
-      # to its digest. Left unset, the AppImage is skipped and the deb and APK
-      # are still produced.
-      - name: Fetch appimagetool
-        if: vars.APPIMAGETOOL_URL != ''
-        env:
-          APPIMAGETOOL_URL: ${{ vars.APPIMAGETOOL_URL }}
-          APPIMAGETOOL_SHA256: ${{ vars.APPIMAGETOOL_SHA256 }}
-        run: |
-          curl -fsSL -o /tmp/appimagetool "$APPIMAGETOOL_URL"
-          sha256sum /tmp/appimagetool
-          if [ -n "$APPIMAGETOOL_SHA256" ]; then
-            echo "$APPIMAGETOOL_SHA256  /tmp/appimagetool" | sha256sum -c -
-          else
-            echo "::warning::APPIMAGETOOL_SHA256 unset, the download was not verified"
-          fi
-          chmod +x /tmp/appimagetool
-          echo "APPIMAGETOOL=/tmp/appimagetool" >> "$GITHUB_ENV"
-
-      # Runners have no FUSE, so appimagetool has to unpack itself to run;
-      # scripts/package.sh already passes --appimage-extract-and-run.
+      # The Arch package is the arch job's business: makepkg does not exist here,
+      # and a deb built on Arch would link a glibc newer than Debian ships.
       - name: Package
-        run: scripts/package.sh
+        run: scripts/package.sh deb apk
 
       # package.sh skips an artifact rather than failing when a tool is missing,
       # which is right locally and wrong here.
       - name: Check the artifacts exist
-        env:
-          WANT_APPIMAGE: ${{ vars.APPIMAGETOOL_URL != '' }}
         run: |
           ls -l dist
           fail=0
           have() { compgen -G "$1" >/dev/null || { echo "missing: $1"; fail=1; }; }
           have 'dist/*.deb'
           have 'dist/*.apk'
-          if [ "$WANT_APPIMAGE" = true ]; then have 'dist/*.AppImage'; fi
           exit $fail
 
       - uses: actions/upload-artifact@v4
         with:
-          name: singbox-client-${{ github.sha }}
+          name: singbox-client-deb-apk-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
 
-      - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+  arch:
+    name: pkg.tar.zst
+    runs-on: ubuntu-latest
+    # makepkg exists only on Arch, and it is what writes .PKGINFO, .MTREE and
+    # .BUILDINFO; base-devel brings the fakeroot it packs with. The deb stays on
+    # Ubuntu for the mirror-image reason — a deb built here would link a glibc
+    # newer than Debian ships.
+    container: archlinux:base-devel
+    steps:
+      # -Syu, not -Sy: a partial upgrade is how an Arch container breaks.
+      - name: Install the toolchain
+        run: |
+          pacman -Syu --needed --noconfirm \
+            git curl unzip which xz clang cmake ninja pkgconf gtk3 librsvg
+
+      # A container runs as root, and neither makepkg nor flutter will.
+      - name: Add an unprivileged build user
+        run: useradd -m build
+
+      - uses: actions/checkout@v4
+
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: /home/build/flutter
+          key: flutter-${{ env.FLUTTER_VERSION }}-arch-x64
+
+      - name: Package
+        run: |
+          cat > /tmp/package.sh <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+            curl -fsSL -o /tmp/flutter.tar.xz \
+              "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
+            tar -xJf /tmp/flutter.tar.xz -C "$HOME"
+            rm -f /tmp/flutter.tar.xz
+          fi
+          export PATH="$HOME/flutter/bin:$PATH"
+          git config --global --add safe.directory "$HOME/flutter"
+          flutter --version
+          flutter pub get
+          scripts/package.sh arch
+          SH
+          chmod 755 /tmp/package.sh
+          # checkout and the cache restore both ran as root.
+          chown -R build:build "$GITHUB_WORKSPACE" /home/build
+          su build -c "cd '$GITHUB_WORKSPACE' && HOME=/home/build \
+            FLUTTER_VERSION='$FLUTTER_VERSION' FLUTTER_SUPPRESS_ANALYTICS=true \
+            /tmp/package.sh"
+
+      - name: Check the artifact exists
+        run: |
+          ls -l dist
+          compgen -G 'dist/*.pkg.tar.zst' >/dev/null || { echo missing; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: singbox-client-arch-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [package, arch]
+    # !cancelled() rather than success(): one broken artifact should not withhold
+    # the others. Whatever uploaded gets attached, and the job says what came.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: singbox-client-*-${{ github.sha }}
+          merge-multiple: true
+          path: dist
+
+      # No checkout here, so gh has no repository to infer — hence --repo.
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ls -l dist
+          compgen -G 'dist/*' >/dev/null || { echo "nothing to release"; exit 1; }
           gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --generate-notes

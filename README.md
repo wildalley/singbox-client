@@ -93,39 +93,52 @@ flutter run -d windows
 `scripts/package.sh` builds the distributables in one pass, into `dist/`:
 
 ```bash
-scripts/package.sh
+scripts/package.sh            # everything this host can manage
+scripts/package.sh deb apk    # or a named subset
 ```
 
 | Artifact | Needs |
 | --- | --- |
-| `singbox-client_<version>_amd64.deb` | nothing past the Linux toolchain — `dpkg-deb` when present, otherwise `ar` + `tar` |
-| `SingBox_Client-<version>-x86_64.AppImage` | `appimagetool` on `PATH`, or `APPIMAGETOOL=/path/to/it` |
+| `singbox-client_<version>-<build>_amd64.deb` | nothing past the Linux toolchain — `dpkg-deb` when present, otherwise `ar` + `tar` |
+| `singbox-client-<version>-<build>-x86_64.pkg.tar.zst` | `makepkg` and `fakeroot`, so an Arch host |
 | `singbox-client-<version>-<build>-arm64.apk` | a JDK, an Android SDK, and `android/app/libs/libbox.aar` |
 
 Whatever is missing a tool is skipped with the reason printed; the rest still
 build. Icons are rasterized from `docs/design/icon/ic_launcher.svg` with
 `rsvg-convert`, falling back to the xxxhdpi launcher PNG.
 
+Both Linux packages install the same layout: the bundle under
+`/usr/lib/singbox-client/`, reached through a `/usr/bin/singbox-client` symlink,
+plus a desktop entry and hicolor icons. Neither needs root to build — the deb
+falls back to `ar`+`tar`, and `makepkg` refuses to run as root anyway.
+
 ## Continuous integration
 
-`.github/workflows/build.yml` has two jobs: `flutter analyze` plus `flutter
-test`, and the three artifacts above. It runs on `ubuntu-latest`, which supplies
-the JDK 17, Android SDK, and NDK that `scripts/build-libbox.sh` needs and a
-typical desktop checkout does not. `libbox.aar` is cached on `SINGBOX_TAG`, so
-only the first run pays the ~15 minutes to build it.
+`.github/workflows/build.yml` runs four jobs:
 
-Every run uploads the artifacts; a pushed `v*` tag also attaches them to a
-GitHub Release.
+| Job | Runner | Produces |
+| --- | --- | --- |
+| `verify` | `ubuntu-latest` | `flutter analyze`, `flutter test` |
+| `package` | `ubuntu-latest` | the deb and the arm64 APK |
+| `arch` | `archlinux:base-devel` container | the `.pkg.tar.zst` |
+| `release` | `ubuntu-latest` | on a `v*` tag, one GitHub Release with whatever built |
 
-Two things the workflow deliberately leaves to you:
+`ubuntu-latest` supplies the JDK 17, Android SDK, and NDK that
+`scripts/build-libbox.sh` needs and a typical desktop checkout does not.
+`libbox.aar` is cached on `SINGBOX_TAG`, so only the first run pays the ~15
+minutes to build it.
 
-- **appimagetool** has no apt package, and the workflow will not choose a
-  download source on your behalf. Point the `APPIMAGETOOL_URL` repository
-  variable at a build you trust — and `APPIMAGETOOL_SHA256` at its digest, which
-  the run prints either way — and the AppImage is built. Left unset, that one
-  artifact is skipped and the deb and APK still ship.
-- **Signing** stays on the debug key, as `android/app/build.gradle.kts` already
-  does. The APK is for testing.
+The Arch package gets its own job because `makepkg` — which is what writes
+`.PKGINFO`, `.MTREE` and `.BUILDINFO` — exists only on Arch, and because a deb
+built there would link a glibc newer than Debian ships. Inside the container
+everything runs as an unprivileged user: neither `makepkg` nor `flutter` will
+run as root.
+
+Every build job uploads its own artifacts, and `release` runs even when one of
+them failed, so a broken artifact does not withhold the others.
+
+One thing the workflow deliberately leaves alone: **signing** stays on the debug
+key, as `android/app/build.gradle.kts` already does. The APK is for testing.
 
 ## Verification
 
@@ -182,9 +195,11 @@ missing. Supervised-process and TUN integration is the next step, per
 - arm64 only. Other ABIs need another `scripts/build-libbox.sh` run with a
   different `-target`.
 - Per-app proxy is modelled in settings but has no UI yet.
-- The deb is verified structurally — member order, control fields, root
-  ownership, the `/usr/bin` symlink, the desktop entry — but has never been
-  installed on a Debian or Ubuntu system.
+- Both Linux packages are verified structurally — deb member order and control
+  fields, `pacman -Qip` metadata, root ownership, the `/usr/bin` symlink, the
+  desktop entry — but neither has been installed on a live system.
+- The PKGBUILD says `license=('custom')` because the repository carries no
+  LICENSE file yet. Add one and the value should follow.
 
 ## Security
 
