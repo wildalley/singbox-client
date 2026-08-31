@@ -18,6 +18,56 @@ enum ProxyStage {
       this == ProxyStage.connected || this == ProxyStage.starting;
 }
 
+/// A start failure the app detected itself, rather than engine output.
+///
+/// Most of what [ProxyState.message] carries is the engine's own words: not
+/// translatable, and shown verbatim because rephrasing an engine error loses the
+/// part that identifies it. These three are different. They are conditions the
+/// app worked out around the engine — no binary, too old a binary, a tun the
+/// kernel would not give us — and each has a specific fix worth spelling out in
+/// the user's language.
+///
+/// So they travel as a marker in the same `message` field instead of an English
+/// sentence built in the runtime layer, and the notice layer turns them into
+/// words. No new field on [ProxyState], and nothing changes for the platform
+/// that only ever reports engine text.
+enum EngineProblem {
+  /// No `sing-box` binary anywhere the runtime looks.
+  missing,
+
+  /// Found, but older than the schema the rendered config uses.
+  tooOld,
+
+  /// A tun start failed for want of `CAP_NET_ADMIN`.
+  unprivileged;
+
+  static const _prefix = 'engine-problem:';
+
+  /// Encodes this problem as a [ProxyState.message], optionally carrying one
+  /// piece of detail — the version found, the path to fix.
+  String encode([String? detail]) => detail == null || detail.isEmpty
+      ? '$_prefix$name'
+      : '$_prefix$name $detail';
+
+  /// The problem [message] encodes, or null when it is plain engine output.
+  static EngineProblem? of(String? message) {
+    if (message == null || !message.startsWith(_prefix)) return null;
+    final name = message.substring(_prefix.length).split(' ').first;
+    for (final problem in values) {
+      if (problem.name == name) return problem;
+    }
+    return null;
+  }
+
+  /// The detail [message] carried, or null. Everything after the first space,
+  /// so a path containing one survives.
+  static String? detailOf(String? message) {
+    if (of(message) == null) return null;
+    final space = message!.indexOf(' ');
+    return space < 0 ? null : message.substring(space + 1);
+  }
+}
+
 class ProxyState {
   const ProxyState({
     this.stage = ProxyStage.disconnected,

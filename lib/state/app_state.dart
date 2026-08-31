@@ -41,6 +41,17 @@ enum NoticeKind {
   ruleSetsUpdateFailed,
   ruleSetsUnavailable,
 
+  /// The three start failures the app works out for itself rather than reading
+  /// off the engine. Each names a fix, so each gets a sentence in the user's
+  /// language where engine text would be passed through untranslated.
+  engineMissing,
+
+  /// [AppNotice.detail] carries the version that was found.
+  engineTooOld,
+
+  /// [AppNotice.detail] carries the binary to grant the capability to.
+  tunUnprivileged,
+
   /// Text that is already final: an engine error or a redacted exception.
   /// Not translatable, so it is passed through as-is.
   passthrough,
@@ -803,11 +814,30 @@ class AppState extends ChangeNotifier {
 
   // ----------------------------------------------------------------- helpers
 
+  /// Turns an error message into a notice.
+  ///
+  /// Engine output is passed through as-is; the markers the runtime encodes for
+  /// the failures it detected itself become kinds the UI can translate. Public
+  /// because the home page shows the same failure as a stage detail, and one
+  /// decode shared beats two that can drift apart.
+  static AppNotice noticeFor(String message) => switch (EngineProblem.of(message)) {
+        EngineProblem.missing => const AppNotice.error(NoticeKind.engineMissing),
+        EngineProblem.tooOld => AppNotice.error(
+            NoticeKind.engineTooOld,
+            detail: EngineProblem.detailOf(message),
+          ),
+        EngineProblem.unprivileged => AppNotice.error(
+            NoticeKind.tunUnprivileged,
+            detail: EngineProblem.detailOf(message),
+          ),
+        null => AppNotice.passthrough(message),
+      };
+
   void _onProxyState(ProxyState state) {
     final wasConnected = _proxyState.isConnected;
     _proxyState = state;
     if (state.stage == ProxyStage.error && state.message != null) {
-      _notice = AppNotice.passthrough(state.message!);
+      _notice = noticeFor(state.message!);
     }
     // Traffic counters are meaningless once the tunnel is down.
     if (wasConnected && !state.isConnected) {

@@ -194,6 +194,12 @@
   "settingsAddSubscription": "Add subscription or nodes",
   "settingsAddSubscriptionBody": "URL, share links, or a sing-box config",
   "settingsProxy": "Proxy",
+  "settingsProxyMode": "Proxy mode",
+  "settingsProxyModeTun": "TUN",
+  "settingsProxyModeSystemProxy": "System proxy",
+  "@settingsProxyModeSystemProxy": {
+    "description": "A local mixed inbound plus the desktop's proxy settings, no capability needed."
+  },
   "settingsTunStack": "TUN stack",
   "settingsSystemProxy": "System HTTP proxy",
   "settingsSystemProxyBody": "Also expose a proxy on the tunnel for apps that ignore the VPN",
@@ -347,6 +353,28 @@
   },
   "noticeRuleSetsUpdateFailed": "Could not update the rule sets; keeping the current lists",
   "noticeRuleSetsUnavailable": "This platform has no local rule sets to update",
+  "noticeEngineMissing": "No sing-box binary found. Install sing-box, or point SINGBOX_BINARY at one.",
+  "@noticeEngineMissing": {
+    "description": "Linux only: the desktop runtime supervises the system's sing-box rather than bundling it."
+  },
+  "noticeEngineTooOld": "sing-box {version} is too old for this config; 1.12 or newer is needed.",
+  "@noticeEngineTooOld": {
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.9.3"
+      }
+    }
+  },
+  "noticeTunUnprivileged": "TUN needs CAP_NET_ADMIN. Grant it with: sudo setcap cap_net_admin,cap_net_raw+ep {binary} \u2014 or switch to system proxy mode.",
+  "@noticeTunUnprivileged": {
+    "placeholders": {
+      "binary": {
+        "type": "String",
+        "example": "/usr/bin/sing-box"
+      }
+    }
+  },
   "platformUnsupported": "The {platform} runtime is not implemented yet. Config rendering and node management still work.",
   "@platformUnsupported": {
     "placeholders": {

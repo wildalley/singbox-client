@@ -829,6 +829,24 @@ abstract class L10n {
   /// **'Proxy'**
   String get settingsProxy;
 
+  /// No description provided for @settingsProxyMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy mode'**
+  String get settingsProxyMode;
+
+  /// No description provided for @settingsProxyModeTun.
+  ///
+  /// In en, this message translates to:
+  /// **'TUN'**
+  String get settingsProxyModeTun;
+
+  /// A local mixed inbound plus the desktop's proxy settings, no capability needed.
+  ///
+  /// In en, this message translates to:
+  /// **'System proxy'**
+  String get settingsProxyModeSystemProxy;
+
   /// No description provided for @settingsTunStack.
   ///
   /// In en, this message translates to:
@@ -1212,6 +1230,24 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'This platform has no local rule sets to update'**
   String get noticeRuleSetsUnavailable;
+
+  /// Linux only: the desktop runtime supervises the system's sing-box rather than bundling it.
+  ///
+  /// In en, this message translates to:
+  /// **'No sing-box binary found. Install sing-box, or point SINGBOX_BINARY at one.'**
+  String get noticeEngineMissing;
+
+  /// No description provided for @noticeEngineTooOld.
+  ///
+  /// In en, this message translates to:
+  /// **'sing-box {version} is too old for this config; 1.12 or newer is needed.'**
+  String noticeEngineTooOld(String version);
+
+  /// No description provided for @noticeTunUnprivileged.
+  ///
+  /// In en, this message translates to:
+  /// **'TUN needs CAP_NET_ADMIN. Grant it with: sudo setcap cap_net_admin,cap_net_raw+ep {binary} — or switch to system proxy mode.'**
+  String noticeTunUnprivileged(String binary);
 
   /// No description provided for @platformUnsupported.
   ///

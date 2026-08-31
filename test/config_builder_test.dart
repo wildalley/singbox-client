@@ -418,6 +418,98 @@ void main() {
     });
   });
 
+  group('proxy mode', () {
+    test('system proxy mode renders no tun at all', () {
+      // The whole point of the mode: a tun is the one inbound that needs a
+      // privileged interface, so on a desktop without CAP_NET_ADMIN it must not
+      // be asked for. If this ever renders one, starting fails on a machine
+      // where the mode is supposed to be the fallback that always works.
+      final config = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(proxyMode: ProxyMode.systemProxy),
+      );
+
+      expect(
+        (config['inbounds'] as List).where((item) => (item as Map)['type'] == 'tun'),
+        isEmpty,
+      );
+    });
+
+    test('the loopback proxy survives in both modes', () {
+      // In tun mode it carries the app's own requests; in system-proxy mode it
+      // is the only inbound there is. Either way its absence means no traffic.
+      for (final mode in ProxyMode.values) {
+        final config = _build(
+          nodes: [_node()],
+          selectedNodeId: 'n1',
+          settings: AppSettings(proxyMode: mode),
+        );
+        final mixed = (config['inbounds'] as List)
+            .where((item) => (item as Map)['type'] == 'mixed')
+            .toList();
+
+        expect(mixed, hasLength(1), reason: 'mode $mode');
+        expect((mixed.single as Map)['listen'], '127.0.0.1');
+        expect((mixed.single as Map)['listen_port'], ConfigBuilder.localProxyPort);
+      }
+    });
+
+    test('system proxy mode still renders outbounds and routing', () {
+      // Dropping the tun must not take the rest of the config with it: the
+      // Linux controller hands this same JSON to the engine.
+      final config = _build(
+        nodes: [_node(id: 'a', name: 'A')],
+        selectedNodeId: 'a',
+        settings: const AppSettings(proxyMode: ProxyMode.systemProxy),
+      );
+
+      expect(_outbound(config, ConfigTags.proxy), isNotNull);
+      expect(_outbound(config, ConfigTags.direct), isNotNull);
+      expect((config['route'] as Map)['rules'], isNotEmpty);
+      expect((config['dns'] as Map)['servers'], isNotEmpty);
+    });
+
+    test('the Clash API listens in both modes', () {
+      // It is how the Linux controller reads groups and switches nodes, so a
+      // mode that renders no listener would start an engine it cannot drive.
+      for (final mode in ProxyMode.values) {
+        final config = _build(
+          nodes: [_node()],
+          selectedNodeId: 'n1',
+          settings: AppSettings(proxyMode: mode),
+        );
+        final clash =
+            (config['experimental'] as Map)['clash_api'] as Map<String, dynamic>;
+
+        expect(
+          clash['external_controller'],
+          '127.0.0.1:${ConfigBuilder.clashApiPort}',
+          reason: 'mode $mode',
+        );
+        expect(clash['secret'], 'test-secret', reason: 'mode $mode');
+      }
+    });
+
+    test('tun mode is unchanged by the mode existing', () {
+      // Android renders through the same builder and never sets the mode, so
+      // the default has to produce exactly the config it produced before.
+      final explicit = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(proxyMode: ProxyMode.tun),
+      );
+      final byDefault = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(),
+      );
+
+      expect(ConfigBuilder.encode(explicit), ConfigBuilder.encode(byDefault));
+      expect(((explicit['inbounds'] as List).first as Map)['type'], 'tun');
+    });
+  });
+
   group('dns', () {
     test('derives the server type and host from the configured URL', () {
       final config = _build(

@@ -22,19 +22,24 @@ class ConfigTags {
 class ConfigBuilder {
   const ConfigBuilder._();
 
-  /// Local Clash API port. Nothing in the app talks to it — libbox reaches the
-  /// runtime over its own command socket — but the listener has to exist for the
-  /// clash-mode rules and the traffic figures libbox reads from it, so it is
-  /// bound to loopback and gated behind a secret rather than switched off.
+  /// Local Clash API port, bound to loopback and gated behind a secret.
+  ///
+  /// On Android nothing in the app talks to it — libbox reaches the runtime over
+  /// its own command socket — but the listener still has to exist for the
+  /// clash-mode rules and the traffic figures libbox reads from it. On Linux it
+  /// is the only control channel there is: the supervised `sing-box` has no
+  /// command socket, so node switching, URL tests, traffic, and memory all go
+  /// through this port.
   static const clashApiPort = 9291;
 
   /// Loopback HTTP/SOCKS inbound, on 127.0.0.1 only.
   ///
-  /// Two consumers: `systemProxy` advertises this address to Android, and the
-  /// in-app rule-set update sends its download through it. The second one is why
-  /// the inbound is unconditional — the app's own package is excluded from the
-  /// tunnel, so this is the only way anything the app fetches can leave through
-  /// the selected node.
+  /// Three consumers: `systemProxy` advertises this address to Android, the
+  /// in-app rule-set update sends its download through it, and Linux
+  /// system-proxy mode points GNOME or KDE at it. The second one is why the
+  /// inbound is unconditional even in tun mode — the app's own package is
+  /// excluded from the tunnel, so this is the only way anything the app fetches
+  /// can leave through the selected node.
   static const localProxyPort = 2080;
 
   /// Builds the full configuration.
@@ -217,31 +222,38 @@ class ConfigBuilder {
   }
 
   static List<Map<String, dynamic>> _inbounds(AppSettings settings) {
+    final tun = settings.proxyMode == ProxyMode.tun;
     return [
-      {
-        'type': 'tun',
-        'tag': 'tun-in',
-        'address': [
-          '172.19.0.1/30',
-          if (settings.ipv6) 'fdfe:dcba:9876::1/126',
-        ],
-        'mtu': settings.mtu,
-        'auto_route': true,
-        'strict_route': settings.strictRoute,
-        'stack': settings.tunStack.tag,
-        'endpoint_independent_nat': true,
-        if (settings.systemProxy)
-          'platform': {
-            'http_proxy': {
-              'enabled': true,
-              'server': '127.0.0.1',
-              // The mixed inbound below is what makes this address answer; an
-              // advertised proxy with nothing behind it breaks every app that
-              // honours the system setting.
-              'server_port': localProxyPort,
+      // Omitted entirely in system-proxy mode: a tun inbound is the one part of
+      // this config that needs a privileged interface, and nothing else refers
+      // to it — no route rule matches an inbound tag, `auto_detect_interface`
+      // is inert without one, and the FakeIP ranges are only ever reached
+      // through a tun's DNS hijack, so they sit unused rather than misroute.
+      if (tun)
+        {
+          'type': 'tun',
+          'tag': 'tun-in',
+          'address': [
+            '172.19.0.1/30',
+            if (settings.ipv6) 'fdfe:dcba:9876::1/126',
+          ],
+          'mtu': settings.mtu,
+          'auto_route': true,
+          'strict_route': settings.strictRoute,
+          'stack': settings.tunStack.tag,
+          'endpoint_independent_nat': true,
+          if (settings.systemProxy)
+            'platform': {
+              'http_proxy': {
+                'enabled': true,
+                'server': '127.0.0.1',
+                // The mixed inbound below is what makes this address answer; an
+                // advertised proxy with nothing behind it breaks every app that
+                // honours the system setting.
+                'server_port': localProxyPort,
+              },
             },
-          },
-      },
+        },
       // Loopback proxy for traffic that cannot use the tun: the app itself is
       // excluded from the VPN, so its own requests (the rule-set update) reach
       // the tunnel only through here. Bound to 127.0.0.1 deliberately — the

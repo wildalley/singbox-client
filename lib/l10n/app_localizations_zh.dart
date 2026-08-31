@@ -385,6 +385,15 @@ class L10nZh extends L10n {
   String get settingsProxy => '代理';
 
   @override
+  String get settingsProxyMode => '代理模式';
+
+  @override
+  String get settingsProxyModeTun => 'TUN';
+
+  @override
+  String get settingsProxyModeSystemProxy => '系统代理';
+
+  @override
   String get settingsTunStack => 'TUN 网络栈';
 
   @override
@@ -599,6 +608,20 @@ class L10nZh extends L10n {
 
   @override
   String get noticeRuleSetsUnavailable => '当前平台没有本地规则集可更新';
+
+  @override
+  String get noticeEngineMissing =>
+      '找不到 sing-box 可执行文件。请先安装 sing-box,或用 SINGBOX_BINARY 指向一个。';
+
+  @override
+  String noticeEngineTooOld(String version) {
+    return 'sing-box $version 版本过旧,当前配置需要 1.12 或更新的版本。';
+  }
+
+  @override
+  String noticeTunUnprivileged(String binary) {
+    return 'TUN 需要 CAP_NET_ADMIN:执行 sudo setcap cap_net_admin,cap_net_raw+ep $binary,或改用系统代理模式。';
+  }
 
   @override
   String platformUnsupported(String platform) {

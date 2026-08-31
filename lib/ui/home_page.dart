@@ -16,6 +16,7 @@ import '../models/proxy_state.dart';
 import '../state/app_state.dart';
 import 'clock.dart';
 import 'components.dart';
+import 'notice_text.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -182,8 +183,12 @@ String _stageDetail(L10n l10n, AppState state) {
         ? l10n.homeProtected
         : l10n.homeProtectedFor(
             formatUptime(clockNow().difference(proxy.since!))),
-    // Engine messages are not translatable; they arrive already redacted.
-    ProxyStage.error => proxy.message ?? l10n.homeCheckTheLogs,
+    // Engine messages are not translatable and arrive already redacted, but the
+    // failures the app detected itself travel as a marker — so both go through
+    // the notice mapping rather than being printed raw.
+    ProxyStage.error => proxy.message == null
+        ? l10n.homeCheckTheLogs
+        : noticeText(l10n, AppState.noticeFor(proxy.message!)),
     _ => state.nodes.isEmpty ? l10n.homeNoNodesYet : l10n.homeReadyToConnect,
   };
 }

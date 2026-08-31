@@ -35,6 +35,9 @@ dist/
 # so it is a failure report, not a fixture — test/snapshots/ holds the fixtures.
 test/failures/
 
+# Local agent/tool configuration. Holds API keys, and this repo is public.
+.codex/
+
 # OS noise
 .DS_Store
 Thumbs.db

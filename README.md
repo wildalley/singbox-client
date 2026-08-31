@@ -1,12 +1,15 @@
 # SingBox Client
 
-A Flutter sing-box client for **Android**, with Windows and Linux sharing the same
-UI and configuration layer. The interface follows the Google Stitch **Obsidian
-Signal** design system, in dark and light variants, with English and Chinese
-localization.
+A Flutter sing-box client for **Android** and **Linux**, with Windows sharing the
+same UI and configuration layer. The interface follows the Google Stitch
+**Obsidian Signal** design system, in dark and light variants, with English and
+Chinese localization.
 
-On Android the proxy actually runs: a Kotlin `VpnService` drives sing-box through
-a self-built `libbox.aar`.
+Both platforms run the proxy, by different means. Android embeds the engine: a
+Kotlin `VpnService` drives sing-box through a self-built `libbox.aar`. Linux
+supervises an installed `sing-box` binary and drives it over its Clash API,
+because `libbox.aar` is Android-only and a desktop tun needs a capability no
+in-process library can grant itself.
 
 ## Features
 
@@ -24,6 +27,19 @@ a self-built `libbox.aar`.
   reattaches to the running service
 - Routing rule-sets ship inside the APK, so a start needs no network; stale ones
   update themselves once the tunnel is up
+
+**Proxy runtime (Linux)**
+
+- Supervises an installed `sing-box` (≥ 1.12), driven over its Clash API: node
+  switching, per-node URL tests, traffic, connection count, and memory
+- Two modes. TUN captures everything but needs `CAP_NET_ADMIN`; system-proxy mode
+  needs no privileges at all and points GNOME or KDE at the loopback inbound
+- Restores the desktop's previous proxy settings on stop, and on next launch
+  after an unclean exit
+- Engine stdout/stderr streams into the log page, so a failed start is readable
+  rather than silent
+- Missing binary, too-old binary, and a tun the kernel refused are each reported
+  with the fix, in the user's language
 
 **Import**
 
@@ -147,7 +163,8 @@ flutter analyze
 flutter test
 ```
 
-242 tests pass: share-link parsing, config rendering, import format detection,
+309 tests pass: share-link parsing, config rendering, import format detection,
+the Linux runtime's Clash API client and desktop proxy backends against fakes,
 UI interaction against a fake controller, and localization/theme coverage
 including palette contrast ratios.
 
@@ -180,13 +197,32 @@ UI translates, so business logic stays free of `BuildContext`.
 | Platform | Proxy runtime | UI |
 | --- | --- | --- |
 | Android (arm64) | sing-box via libbox + VpnService | yes |
-| Linux | not implemented | yes |
+| Linux (x86_64) | supervised `sing-box` process + Clash API | yes |
 | Windows | not implemented | yes |
 
-Desktop platforms get `UnsupportedProxyController`: node management, import, and
-config rendering all work, but starting a tunnel reports that the runtime is
-missing. Supervised-process and TUN integration is the next step, per
-[`docs/architecture.md`](docs/architecture.md).
+Windows gets `UnsupportedProxyController`: node management, import, and config
+rendering all work, but starting a tunnel reports that the runtime is missing.
+
+Linux needs `sing-box` 1.12 or newer on `PATH` — the rendered config uses 1.12
+schema. `SINGBOX_BINARY` overrides the lookup. Which mode to run:
+
+| Mode | Privileges | Catches |
+| --- | --- | --- |
+| System proxy | none | applications that honour the desktop proxy settings; TCP only |
+| TUN | `CAP_NET_ADMIN` | everything, UDP included |
+
+TUN is the default. The app cannot ask for the capability — there is no dialog
+for it on Linux — so grant it once to the binary the app will run:
+
+```bash
+sudo setcap cap_net_admin,cap_net_raw+ep "$(command -v sing-box)"
+```
+
+File capabilities are lost when the `sing-box` package is upgraded, so that has
+to be repeated. Without it, TUN mode reports the failure and the exact command;
+system-proxy mode works untouched. See
+[`docs/architecture.md`](docs/architecture.md) for how the two runtimes divide up
+the same `ProxyController` interface.
 
 ## Known gaps
 
@@ -198,6 +234,15 @@ missing. Supervised-process and TUN integration is the next step, per
 - Both Linux packages are verified structurally — deb member order and control
   fields, `pacman -Qip` metadata, root ownership, the `/usr/bin` symlink, the
   desktop entry — but neither has been installed on a live system.
+- The Linux runtime is covered by unit tests against fakes, not by a live tunnel:
+  no automated test starts a real `sing-box`, creates a tun, or writes real
+  desktop proxy settings.
+- Linux has no privileged helper. TUN depends on file capabilities on the
+  `sing-box` binary, which a package upgrade clears; a systemd or polkit helper
+  would survive that.
+- Only GNOME and KDE system-proxy backends are implemented. Elsewhere the mode
+  starts the engine and says in the log page that it could not set the
+  desktop's proxy.
 
 ## Security
 
@@ -219,11 +264,12 @@ later*. The distributed APK is a combined work, so its terms have to be
 compatible. Two consequences worth knowing before publishing a binary:
 
 - Anyone who receives the APK is entitled to the corresponding source. The
-  repository is private today, so that obligation is not yet met.
+  repository is public, which is what meets that obligation.
 - sing-box adds a clause of its own: no derivative work may use its name or
   imply association with it without prior consent.
 
-The Linux packages contain no sing-box code — desktop has no proxy runtime — but
-they share this repository, so they carry the same license. The deb declares it
-in `usr/share/doc/singbox-client/copyright`, the Arch package in
+The Linux packages contain no sing-box code: the runtime there executes a
+`sing-box` the user installed separately, so nothing of it is copied or linked
+in. They share this repository, so they carry the same license anyway. The deb
+declares it in `usr/share/doc/singbox-client/copyright`, the Arch package in
 `usr/share/licenses/singbox-client/LICENSE`.

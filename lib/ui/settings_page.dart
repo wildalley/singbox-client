@@ -1,6 +1,10 @@
 /// Settings screen: subscriptions, network behaviour, appearance, diagnostics.
 library;
 
+import 'dart:io';
+
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -51,36 +55,50 @@ class SettingsPage extends StatelessWidget {
         SettingGroup(
           title: l10n.settingsProxy,
           rows: [
-            SettingRow(
-              icon: Icons.vpn_lock_outlined,
-              title: l10n.settingsTunStack,
-              subtitle: settings.tunStack.label,
-              trailing: _StackMenu(state: state),
-            ),
-            // MTU lives here rather than under Network: it is a `tun` field in
-            // the generated config, same as the stack and strict route.
-            SettingRow(
-              icon: Icons.straighten_outlined,
-              title: l10n.settingsMtu,
-              subtitle: '${settings.mtu}',
-              onTap: () => _editMtu(context),
-            ),
-            SettingRow(
-              icon: Icons.alt_route_outlined,
-              title: l10n.settingsStrictRoute,
-              subtitle: l10n.settingsStrictRouteBody,
-              value: settings.strictRoute,
-              onChanged: (value) =>
-                  state.applySettings(settings.copyWith(strictRoute: value)),
-            ),
-            SettingRow(
-              icon: Icons.shield_outlined,
-              title: l10n.settingsSystemProxy,
-              subtitle: l10n.settingsSystemProxyBody,
-              value: settings.systemProxy,
-              onChanged: (value) =>
-                  state.applySettings(settings.copyWith(systemProxy: value)),
-            ),
+            // Android's tun arrives with the VpnService dialog, so there is no
+            // choice to offer there. Only the desktop, where a tun needs a
+            // capability the app cannot ask for, has a second mode worth having.
+            if (!Platform.isAndroid)
+              SettingRow(
+                icon: Icons.swap_horiz_outlined,
+                title: l10n.settingsProxyMode,
+                subtitle: proxyModeLabel(l10n, settings.proxyMode),
+                trailing: _ModeMenu(state: state),
+              ),
+            // Everything below describes the `tun` inbound, which system-proxy
+            // mode does not render. Hidden rather than shown doing nothing.
+            if (settings.proxyMode == ProxyMode.tun) ...[
+              SettingRow(
+                icon: Icons.vpn_lock_outlined,
+                title: l10n.settingsTunStack,
+                subtitle: settings.tunStack.label,
+                trailing: _StackMenu(state: state),
+              ),
+              // MTU lives here rather than under Network: it is a `tun` field in
+              // the generated config, same as the stack and strict route.
+              SettingRow(
+                icon: Icons.straighten_outlined,
+                title: l10n.settingsMtu,
+                subtitle: '${settings.mtu}',
+                onTap: () => _editMtu(context),
+              ),
+              SettingRow(
+                icon: Icons.alt_route_outlined,
+                title: l10n.settingsStrictRoute,
+                subtitle: l10n.settingsStrictRouteBody,
+                value: settings.strictRoute,
+                onChanged: (value) =>
+                    state.applySettings(settings.copyWith(strictRoute: value)),
+              ),
+              SettingRow(
+                icon: Icons.shield_outlined,
+                title: l10n.settingsSystemProxy,
+                subtitle: l10n.settingsSystemProxyBody,
+                value: settings.systemProxy,
+                onChanged: (value) =>
+                    state.applySettings(settings.copyWith(systemProxy: value)),
+              ),
+            ],
           ],
         ),
         // Between Proxy and Network: the rule-sets decide *where* a packet goes,
@@ -542,6 +560,40 @@ class _LanguageMenu extends StatelessWidget {
               AppLanguage.chinese => '中文',
             }),
           ),
+      ],
+    );
+  }
+}
+
+/// What a mode is called on screen.
+///
+/// [TunStack] carries its own `label` because "gvisor" and "system" are the
+/// engine's own tokens and read the same in every language. Mode names are
+/// ordinary words, so they live in the arb files instead and this is the one
+/// place that maps them.
+String proxyModeLabel(L10n l10n, ProxyMode mode) => switch (mode) {
+      ProxyMode.tun => l10n.settingsProxyModeTun,
+      ProxyMode.systemProxy => l10n.settingsProxyModeSystemProxy,
+    };
+
+class _ModeMenu extends StatelessWidget {
+  const _ModeMenu({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final palette = context.palette;
+    return PopupMenuButton<ProxyMode>(
+      initialValue: state.settings.proxyMode,
+      color: palette.surface2,
+      icon: Icon(Icons.expand_more, size: 20, color: palette.muted),
+      onSelected: (value) =>
+          state.applySettings(state.settings.copyWith(proxyMode: value)),
+      itemBuilder: (context) => [
+        for (final value in ProxyMode.values)
+          PopupMenuItem(value: value, child: Text(proxyModeLabel(l10n, value))),
       ],
     );
   }

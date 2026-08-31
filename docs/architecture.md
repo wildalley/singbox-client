@@ -40,9 +40,9 @@ abstract interface class ProxyController {
 
 `ProxyState.stage` makes permission, starting, connected, stopping,
 disconnected, and error states explicit. `createProxyController()` returns
-`AndroidProxyController` on Android and `UnsupportedProxyController` elsewhere,
-so the UI, import pipeline, and config rendering stay usable on platforms whose
-runtime is not implemented yet.
+`AndroidProxyController` on Android, `LinuxProxyController` on Linux, and
+`UnsupportedProxyController` elsewhere, so the UI, import pipeline, and config
+rendering stay usable on platforms whose runtime is not implemented yet.
 
 ## Platform adapters
 
@@ -64,11 +64,45 @@ lifecycle and the foreground notification. libbox drives the proxy:
 Channels: `singbox/control` (methods) and `singbox/events` (status, traffic,
 logs, outbound groups).
 
-**Windows / Linux — not implemented.** Planned as a supervised `sing-box`
-process with TUN integration, plus a system-proxy / firewall flow on Windows and
-systemd/polkit handling on Linux. Process stdout/stderr must be parsed into
-structured, redacted events. Keep the UI usable when the service is unavailable
-and report actionable permission errors.
+**Linux — implemented.** `libbox.aar` is a gomobile artifact with JNI bindings,
+so it cannot be loaded here. `LinuxProxyController` supervises an installed
+`sing-box` instead and drives it over the Clash API the rendered config already
+enables:
+
+- `sing-box run -c config.json -D <workdir>` runs as a child process. The config
+  is written to the XDG data dir, mode 0600 in a 0700 directory, because it holds
+  node credentials and the API secret.
+- The controller parses the `configJson` string it is handed to recover the Clash
+  port and secret, the mixed inbound's port, and whether a tun is present. So the
+  `ProxyController` interface needs no Linux-shaped additions.
+- Readiness is `GET /version` polled until it answers, short-circuited if the
+  child has already exited. Node switching is `PUT /proxies/{group}`, latency is
+  `GET /proxies/{name}/delay` per member, and traffic, connections, and memory
+  come from the three WebSockets.
+- The API pushes no group updates and offers no live reload, so group state is
+  polled and `reload` is stop-then-start.
+- stdout/stderr stream into the log page; the last 20 lines are appended to a
+  start failure, so a config the engine rejects is readable.
+
+Two modes, because a tun here needs `CAP_NET_ADMIN` and there is no dialog to
+ask for it. `ProxyMode.tun` renders the config Android uses and, if the binary
+lacks the capability, reports the `setcap` command that grants it.
+`ProxyMode.systemProxy` renders no tun at all and points the desktop at the
+loopback inbound — `gsettings` under GNOME, `kwriteconfig6/5` under KDE — which
+needs no privileges. The previous settings are restored on stop, and on next
+launch if the process was killed. Because the controller spawns `sing-box` as a
+child, a file capability on that binary is enough; no privileged helper is
+involved, at the cost of a package upgrade clearing it.
+
+The three failures the app can diagnose itself — no binary, too old, no
+capability — travel as an `EngineProblem` marker inside `ProxyState.message`,
+which the UI turns into a translated sentence naming the fix. Engine output
+passes through as-is.
+
+**Windows — not implemented.** Planned as the same supervised process, plus a
+system-proxy / firewall flow and whatever elevation a Wintun adapter needs. Keep
+the UI usable when the runtime is unavailable and report actionable permission
+errors.
 
 ## Configuration flow
 

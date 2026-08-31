@@ -81,9 +81,31 @@ enum TunStack {
       );
 }
 
+/// How traffic gets into the tunnel.
+///
+/// [tun] is what Android does and stays the default: a `tun` inbound takes
+/// everything at the network layer, which needs a privileged interface — free
+/// on Android after the VpnService dialog, `CAP_NET_ADMIN` everywhere else.
+///
+/// [systemProxy] renders no tun at all. Traffic arrives through the loopback
+/// `mixed` inbound that every config already carries, and the desktop's own
+/// proxy settings point applications at it. Nothing here needs privileges, so
+/// it is the mode a Linux build can offer out of the box; the cost is that it
+/// only catches what honours the system proxy, and no UDP.
+enum ProxyMode {
+  tun,
+  systemProxy;
+
+  static ProxyMode fromName(String? value) => ProxyMode.values.firstWhere(
+        (item) => item.name == value,
+        orElse: () => ProxyMode.tun,
+      );
+}
+
 class AppSettings {
   const AppSettings({
     this.routingMode = RoutingMode.rule,
+    this.proxyMode = ProxyMode.tun,
     this.mtu = 9000,
     this.ipv6 = false,
     this.strictRoute = false,
@@ -102,6 +124,10 @@ class AppSettings {
   });
 
   final RoutingMode routingMode;
+
+  /// Which inbound carries traffic. [ProxyMode.tun] keeps the rendered config
+  /// exactly as it has always been, so Android is unaffected by this existing.
+  final ProxyMode proxyMode;
   final int mtu;
   final bool ipv6;
   final bool strictRoute;
@@ -180,6 +206,7 @@ class AppSettings {
 
   AppSettings copyWith({
     RoutingMode? routingMode,
+    ProxyMode? proxyMode,
     int? mtu,
     bool? ipv6,
     bool? strictRoute,
@@ -198,6 +225,7 @@ class AppSettings {
   }) {
     return AppSettings(
       routingMode: routingMode ?? this.routingMode,
+      proxyMode: proxyMode ?? this.proxyMode,
       mtu: mtu ?? this.mtu,
       ipv6: ipv6 ?? this.ipv6,
       strictRoute: strictRoute ?? this.strictRoute,
@@ -218,6 +246,7 @@ class AppSettings {
 
   Map<String, dynamic> toJson() => {
         'routing_mode': routingMode.name,
+        'proxy_mode': proxyMode.name,
         'mtu': mtu,
         'ipv6': ipv6,
         'strict_route': strictRoute,
@@ -237,6 +266,7 @@ class AppSettings {
 
   static AppSettings fromJson(Map<String, dynamic> json) => AppSettings(
         routingMode: RoutingMode.fromName(json['routing_mode'] as String?),
+        proxyMode: ProxyMode.fromName(json['proxy_mode'] as String?),
         mtu: (json['mtu'] as num?)?.toInt() ?? 9000,
         ipv6: json['ipv6'] as bool? ?? false,
         strictRoute: json['strict_route'] as bool? ?? false,

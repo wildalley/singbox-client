@@ -157,12 +157,18 @@ Section: net
 Priority: optional
 Architecture: amd64
 Depends: libc6, libstdc++6, libgtk-3-0, libglib2.0-0
+Recommends: sing-box (>= 1.12)
 Installed-Size: $installed_size
 Maintainer: WildAlley <noreply@wildalley.invalid>
 Description: sing-box client
- A Flutter sing-box client. This desktop build ships the interface,
- import, and config rendering; the proxy runtime is Android-only for now,
- so starting a tunnel reports that the runtime is missing.
+ A Flutter sing-box client. This build ships the interface, import, and
+ config rendering, and runs traffic by supervising a sing-box binary it
+ finds on PATH.
+ .
+ sing-box is a Recommends rather than a Depends because Debian and Ubuntu
+ do not carry it in their own archives; install it from upstream's
+ repository, or point SINGBOX_BINARY at a copy. TUN mode additionally
+ needs cap_net_admin on that binary — system-proxy mode needs nothing.
 CONTROL
 
   deb=$out/${PKG}_${VERSION}-${BUILD}_amd64.deb
@@ -208,6 +214,9 @@ if wants arch; then
     # depends: what the bundle actually links against, mapped to packages.
     # gtk3 pulls in the pango/cairo/gdk-pixbuf/atk/harfbuzz/glib/epoxy stack,
     # so listing it covers every NEEDED entry but the three below.
+    # sing-box is different: nothing links it, the app runs it. A hard depend
+    # rather than an optdepend because without it the app cannot proxy at all,
+    # which is the only thing it is for. Arch ships 1.13; the config needs 1.12.
     # license: GPL-3.0-or-later, because the Android build links libbox built
     # from sing-box, which is GPLv3+. Arch's own copy lives in
     # /usr/share/licenses/common/GPL3, so only the verbatim text is installed.
@@ -219,7 +228,7 @@ pkgdesc='sing-box client'
 arch=('x86_64')
 url='$URL'
 license=('GPL-3.0-or-later')
-depends=('gtk3' 'gcc-libs' 'glibc' 'zlib')
+depends=('gtk3' 'gcc-libs' 'glibc' 'zlib' 'sing-box>=1.12')
 # !strip: the Flutter engine and libapp.so ship as they were built.
 options=('!strip' '!debug')
 

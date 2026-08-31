@@ -412,6 +412,15 @@ class L10nEn extends L10n {
   String get settingsProxy => 'Proxy';
 
   @override
+  String get settingsProxyMode => 'Proxy mode';
+
+  @override
+  String get settingsProxyModeTun => 'TUN';
+
+  @override
+  String get settingsProxyModeSystemProxy => 'System proxy';
+
+  @override
   String get settingsTunStack => 'TUN stack';
 
   @override
@@ -664,6 +673,20 @@ class L10nEn extends L10n {
   @override
   String get noticeRuleSetsUnavailable =>
       'This platform has no local rule sets to update';
+
+  @override
+  String get noticeEngineMissing =>
+      'No sing-box binary found. Install sing-box, or point SINGBOX_BINARY at one.';
+
+  @override
+  String noticeEngineTooOld(String version) {
+    return 'sing-box $version is too old for this config; 1.12 or newer is needed.';
+  }
+
+  @override
+  String noticeTunUnprivileged(String binary) {
+    return 'TUN needs CAP_NET_ADMIN. Grant it with: sudo setcap cap_net_admin,cap_net_raw+ep $binary — or switch to system proxy mode.';
+  }
 
   @override
   String platformUnsupported(String platform) {

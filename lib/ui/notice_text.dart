@@ -32,6 +32,11 @@ String noticeText(L10n l10n, AppNotice notice) {
     NoticeKind.ruleSetsUpdated => l10n.noticeRuleSetsUpdated,
     NoticeKind.ruleSetsUpdateFailed => l10n.noticeRuleSetsUpdateFailed,
     NoticeKind.ruleSetsUnavailable => l10n.noticeRuleSetsUnavailable,
+    NoticeKind.engineMissing => l10n.noticeEngineMissing,
+    NoticeKind.engineTooOld => l10n.noticeEngineTooOld(detail),
+    NoticeKind.tunUnprivileged => l10n.noticeTunUnprivileged(
+        detail.isEmpty ? 'sing-box' : detail,
+      ),
     // Already-final text: an engine message or a redacted exception.
     NoticeKind.passthrough => detail,
   };
