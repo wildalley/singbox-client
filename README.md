@@ -18,8 +18,12 @@ a self-built `libbox.aar`.
 - Live status, traffic counters, and log streaming into the UI
 - Runtime node switching via the `selector` outbound, without restarting the
   tunnel
+- `urltest` group as a selectable exit, so the engine can pick the fastest node
+  itself
 - The tunnel survives the Flutter engine being killed; reopening the app
   reattaches to the running service
+- Routing rule-sets ship inside the APK, so a start needs no network; stale ones
+  update themselves once the tunnel is up
 
 **Import**
 
@@ -38,7 +42,10 @@ measured latency and favourites.
   desktop-sized windows
 - Dark and light themes, following the system setting or pinned manually
 - English and Chinese, following the system locale or pinned manually
-- TCP latency probing with bounded concurrency
+- Latency measured through the tunnel when it is up — the engine URL-tests each
+  proxy — and by TCP handshake with bounded concurrency when it is not
+- Nodes grouped by source, foldable, searchable, and sortable by latency
+- Subscriptions refresh themselves on connect when they have gone stale
 - Generated-config inspector for diagnostics
 
 ## Requirements
@@ -81,6 +88,58 @@ flutter run -d linux
 flutter run -d windows
 ```
 
+### Packaging
+
+`scripts/package.sh` builds the distributables in one pass, into `dist/`:
+
+```bash
+scripts/package.sh            # everything this host can manage
+scripts/package.sh deb apk    # or a named subset
+```
+
+| Artifact | Needs |
+| --- | --- |
+| `singbox-client_<version>-<build>_amd64.deb` | nothing past the Linux toolchain — `dpkg-deb` when present, otherwise `ar` + `tar` |
+| `singbox-client-<version>-<build>-x86_64.pkg.tar.zst` | `makepkg` and `fakeroot`, so an Arch host |
+| `singbox-client-<version>-<build>-arm64.apk` | a JDK, an Android SDK, and `android/app/libs/libbox.aar` |
+
+Whatever is missing a tool is skipped with the reason printed; the rest still
+build. Icons are rasterized from `docs/design/icon/ic_launcher.svg` with
+`rsvg-convert`, falling back to the xxxhdpi launcher PNG.
+
+Both Linux packages install the same layout: the bundle under
+`/usr/lib/singbox-client/`, reached through a `/usr/bin/singbox-client` symlink,
+plus a desktop entry and hicolor icons. Neither needs root to build — the deb
+falls back to `ar`+`tar`, and `makepkg` refuses to run as root anyway.
+
+## Continuous integration
+
+`.github/workflows/build.yml` runs four jobs:
+
+| Job | Runner | Produces |
+| --- | --- | --- |
+| `verify` | `ubuntu-latest` | `flutter analyze`, `flutter test` |
+| `package` | `ubuntu-latest` | the deb and the arm64 APK |
+| `arch` | `archlinux:base-devel` container | the `.pkg.tar.zst` |
+| `release` | `ubuntu-latest` | on a `v*` tag, one GitHub Release with whatever built |
+
+`ubuntu-latest` supplies the JDK 17, Android SDK, and NDK that
+`scripts/build-libbox.sh` needs and a typical desktop checkout does not.
+`libbox.aar` is cached on `SINGBOX_TAG`, so only the first run pays the ~15
+minutes to build it.
+
+The Arch package gets its own job because `makepkg` — which is what writes
+`.PKGINFO`, `.MTREE` and `.BUILDINFO` — exists only on Arch, and because a deb
+built there would link a glibc newer than Debian ships. Inside the container
+everything runs as an unprivileged user: neither `makepkg` nor `flutter` will
+run as root.
+
+Every build job uploads its own artifacts, and `release` runs even when one of
+them failed, so a broken artifact does not withhold the others.
+
+One thing the workflow deliberately leaves alone: **signing** stays on the debug
+key, as `android/app/build.gradle.kts` already does. The APK is for testing.
+
 ## Verification
 
 ```bash
@@ -88,12 +147,22 @@ flutter analyze
 flutter test
 ```
 
-73 tests pass: share-link parsing, config rendering, import format detection,
+242 tests pass: share-link parsing, config rendering, import format detection,
 UI interaction against a fake controller, and localization/theme coverage
 including palette contrast ratios.
 
+Visual regression snapshots are gated behind an environment variable, because
+they render on the host's font stack and are only meaningful where they were
+recorded:
+
+```bash
+VISUAL_SNAPSHOTS=1 flutter test test/visual_snapshot_test.dart
+```
+
 End-to-end tunnel behaviour — a real node carrying real traffic — has not been
-verified in an automated way and needs a real subscription to exercise.
+verified in an automated way and needs a real subscription to exercise. The same
+holds for anything that depends on what the engine reports at runtime, including
+the URL-test delays behind latency sorting.
 
 ## Localization
 
@@ -126,6 +195,9 @@ missing. Supervised-process and TUN integration is the next step, per
 - arm64 only. Other ABIs need another `scripts/build-libbox.sh` run with a
   different `-target`.
 - Per-app proxy is modelled in settings but has no UI yet.
+- Both Linux packages are verified structurally — deb member order and control
+  fields, `pacman -Qip` metadata, root ownership, the `/usr/bin` symlink, the
+  desktop entry — but neither has been installed on a live system.
 
 ## Security
 
@@ -136,3 +208,22 @@ warns before displaying.
 
 Never commit subscription URLs containing tokens, keystores, or generated
 runtime state.
+
+## License
+
+GPL-3.0-or-later — see [`LICENSE`](LICENSE). Copyright 2026 WildAlley.
+
+The choice is not free: the Android build links `libbox.aar`, compiled from
+[sing-box](https://github.com/SagerNet/sing-box) source, which is GPLv3 *or
+later*. The distributed APK is a combined work, so its terms have to be
+compatible. Two consequences worth knowing before publishing a binary:
+
+- Anyone who receives the APK is entitled to the corresponding source. The
+  repository is private today, so that obligation is not yet met.
+- sing-box adds a clause of its own: no derivative work may use its name or
+  imply association with it without prior consent.
+
+The Linux packages contain no sing-box code — desktop has no proxy runtime — but
+they share this repository, so they carry the same license. The deb declares it
+in `usr/share/doc/singbox-client/copyright`, the Arch package in
+`usr/share/licenses/singbox-client/LICENSE`.

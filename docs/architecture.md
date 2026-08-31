@@ -22,6 +22,7 @@ abstract interface class ProxyController {
   Stream<ProxyState> get states;
   Stream<ProxyTraffic> get traffic;
   Stream<ProxyLogEntry> get logs;
+  Stream<ProxyGroup> get groups;
 
   ProxyState get currentState;
 
@@ -30,6 +31,7 @@ abstract interface class ProxyController {
   Future<void> stop();
   Future<void> reload(String configJson);
   Future<void> selectOutbound(String outboundTag);
+  Future<void> urlTest();
   Future<String?> coreVersion();
 
   void dispose();
@@ -51,13 +53,16 @@ lifecycle and the foreground notification. libbox drives the proxy:
   config and opens the tun.
 - `BoxPlatform` implements libbox's `PlatformInterface`. Its `openTun` translates
   libbox's `TunOptions` into a `VpnService.Builder` and returns the raw fd.
-- `Libbox.newCommandClient(...)` subscribes to the status and log streams.
+- `Libbox.newCommandClient(...)` subscribes to the status, log, and outbound-group
+  streams. The group subscription is what carries each member's `URLTestDelay`,
+  so it is the only source of a latency measured *through* the proxy rather than
+  a TCP handshake to its server address.
 - `BoxEvents` holds state as process-global truth, because the service outlives
   the Flutter engine when the user swipes the app away. `MainActivity` attaches
   a listener and replays the current status when a new engine connects.
 
 Channels: `singbox/control` (methods) and `singbox/events` (status, traffic,
-logs).
+logs, outbound groups).
 
 **Windows / Linux — not implemented.** Planned as a supervised `sing-box`
 process with TUN integration, plus a system-proxy / firewall flow on Windows and
@@ -81,7 +86,8 @@ subscription preserves latency readings and favourites.
 
 Outbound tags are generated in exactly one place — `ConfigBuilder.outboundTag` —
 because runtime node switching (`selectOutbound`) has to name the same tag the
-config declared.
+config declared, and because it is the only mapping that leads from a tag the
+engine reports back to a node: URL-test delays arrive keyed by tag.
 
 ## Secrets
 
@@ -91,7 +97,16 @@ crash reports, clipboard previews, and error messages. Concretely:
 - `Subscription.redactedUrl` strips credentials and query strings for display.
 - Import errors run through `_redact`, which replaces anything URL-shaped.
 - The generated-config viewer warns before the config is copied, because it
-  contains credentials in full.
+  contains credentials in full — except the Clash API token, which it masks,
+  because a config preview is something users screenshot.
+
+The Clash API listener is a secret of its own. It stays enabled because libbox
+reads its traffic figures from it, so it is bound to loopback and gated behind a
+128-bit `Random.secure()` token persisted in `Storage`: on Android every app on
+the device can reach `127.0.0.1`, and an unauthenticated controller would let any
+of them switch the user's outbound or read their connection list.
+`ConfigBuilder.build` takes that token as a required argument with no default, so
+a caller cannot forget it and quietly render an open listener.
 
 ## Remaining work
 

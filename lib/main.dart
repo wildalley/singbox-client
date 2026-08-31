@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'data/rule_sets.dart';
 import 'data/storage.dart';
 import 'l10n/app_localizations.dart';
 import 'models/app_settings.dart';
@@ -21,15 +22,21 @@ import 'ui/rules_page.dart';
 import 'ui/settings_page.dart';
 import 'ui/theme.dart';
 import 'ui/widgets.dart';
+import 'version.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final storage = await Storage.open();
+  // Before the first config is rendered: with the rule-sets on disk the engine
+  // starts without reaching the network, which is the difference between
+  // connecting and not on a filtered or offline link.
+  final ruleSetDir = await BundledRuleSets.prepare();
   runApp(
     SingBoxApp(
       state: AppState(
         storage: storage,
         controller: createProxyController(),
+        ruleSetDir: ruleSetDir,
       ),
     ),
   );
@@ -139,9 +146,25 @@ class _AppShellState extends State<AppShell> {
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(
-          content: Text(noticeText(L10n.of(context), notice)),
-          backgroundColor:
-              notice.isError ? palette.danger.withValues(alpha: .18) : null,
+          // Engine errors run to several hundred characters — a sing-box
+          // rule-set failure quotes a URL and a socket address per rule-set.
+          // Unbounded, that laid the whole string over the dial, the connect
+          // button and the traffic card. The full text is in the logs page;
+          // this is the alert, not the report.
+          content: Text(
+            noticeText(L10n.of(context), notice),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          backgroundColor: notice.isError
+              // Pre-composited, not translucent. At 18% alpha the dial and its
+              // rings read straight through the bar, which is what made one
+              // long error look like two overlapping copies of itself.
+              ? Color.alphaBlend(
+                  palette.danger.withValues(alpha: .18),
+                  palette.surface3,
+                )
+              : null,
         ),
       );
   }
@@ -190,7 +213,8 @@ class _AppShellState extends State<AppShell> {
               body: SafeArea(bottom: false, child: page),
               bottomNavigationBar: NavigationBar(
                 selectedIndex: _tab.index,
-                onDestinationSelected: (index) => _goToTab(AppTab.values[index]),
+                onDestinationSelected: (index) =>
+                    _goToTab(AppTab.values[index]),
                 destinations: [
                   for (final tab in AppTab.values)
                     NavigationDestination(
@@ -225,7 +249,7 @@ class _DesktopRail extends StatelessWidget {
     final palette = context.palette;
 
     return Container(
-      width: 218,
+      width: 240,
       padding: const EdgeInsets.fromLTRB(Gap.lg, 26, Gap.md, Gap.xl),
       decoration: BoxDecoration(
         border: Border(right: BorderSide(color: palette.border)),
@@ -234,28 +258,13 @@ class _DesktopRail extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: Gap.md, bottom: 28),
-            child: Row(
-              children: [
-                Icon(Icons.blur_on_rounded, color: palette.violet, size: 22),
-                const SizedBox(width: 10),
-                Text(
-                  l10n.appShortName,
-                  style: const TextStyle(
-                    fontFamily: AppFonts.display,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-              ],
-            ),
+            padding: const EdgeInsets.only(left: Gap.md, bottom: Gap.xl),
+            child: _Wordmark(connected: connected),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
             child: StatusPill(
-              label:
-                  connected ? l10n.stageConnected : l10n.stageDisconnected,
+              label: connected ? l10n.stageConnected : l10n.stageDisconnected,
               color: connected ? palette.mint : palette.muted,
             ),
           ),
@@ -280,6 +289,85 @@ class _DesktopRail extends StatelessWidget {
   }
 }
 
+/// Sidebar wordmark: the mark lights up while the tunnel is up, so the rail
+/// carries connection state even when the pill below it is scrolled past.
+class _Wordmark extends StatelessWidget {
+  const _Wordmark({required this.connected});
+
+  final bool connected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final palette = context.palette;
+    final lit = connected ? palette.mint : palette.violet;
+
+    return Row(
+      children: [
+        AnimatedContainer(
+          duration: Motion.normal,
+          curve: Motion.curve,
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            // Opaque, for the same reason as the connection dial's disc: the
+            // glow below would otherwise show through a 13%-alpha fill and
+            // wash out the mark sitting on it. The rail has no card under it,
+            // so this composites against the page, not surface.
+            color: Color.alphaBlend(lit.withValues(alpha: .13), palette.bg),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(color: lit.withValues(alpha: .32)),
+            boxShadow: connected
+                ? glow(
+                    lit,
+                    intensity:
+                        0.5 * glowIntensity(Theme.of(context).brightness),
+                  )
+                : null,
+          ),
+          child: Icon(Icons.blur_on_rounded, color: lit, size: 18),
+        ),
+        const SizedBox(width: Gap.md),
+        // The name sits above a tracked-out label, the way the dashboard's
+        // section headers read. Tracking is positive here: at 9px the display
+        // face needs the extra air to stay legible as a label.
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.appShortName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: AppFonts.display,
+                  fontFamilyFallback: AppFonts.cjkFallback,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                l10n.railOverview.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.faint,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _RailItem extends StatelessWidget {
   const _RailItem({
     required this.tab,
@@ -300,17 +388,18 @@ class _RailItem extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: onTap,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
+            duration: Motion.fast,
+            curve: Motion.curve,
             padding:
                 const EdgeInsets.symmetric(horizontal: Gap.md, vertical: 11),
             decoration: BoxDecoration(
               color: active
                   ? palette.violet.withValues(alpha: .16)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
             child: Row(
               children: [
@@ -336,6 +425,3 @@ class _RailItem extends StatelessWidget {
     );
   }
 }
-
-/// Shown in the rail and in Settings; keep in sync with pubspec `version`.
-const appVersion = '0.1.0';

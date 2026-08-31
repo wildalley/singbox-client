@@ -139,16 +139,19 @@ class BoxPlatform(private val service: SingBoxVpnService) : PlatformInterface {
         val activeNetwork = connectivity.activeNetwork
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
 
-        for (java in JavaNetworkInterface.getNetworkInterfaces()) {
+        val enumeration = JavaNetworkInterface.getNetworkInterfaces()
+            ?: return InterfaceArrayIterator(result)
+
+        for (java in enumeration) {
+            val name = java.name ?: continue
             val item = io.nekohasekai.libbox.NetworkInterface()
-            item.name = java.name
+            item.name = name
             item.index = java.index
             item.mtu = runCatching { java.mtu }.getOrDefault(1500)
-            item.addresses = StringArrayIterator(
-                java.interfaceAddresses.map { "${it.address.hostAddress}/${it.networkPrefixLength}" }
-            )
+            item.addresses = StringArrayIterator(cidrAddresses(java))
+            item.dnsServer = StringArrayIterator(emptyList())
             item.flags = buildFlags(java)
-            item.type = interfaceType(java.name, capabilities)
+            item.type = interfaceType(name, capabilities)
             item.metered = capabilities?.hasCapability(
                 NetworkCapabilities.NET_CAPABILITY_NOT_METERED
             )?.not() ?: false
@@ -156,6 +159,35 @@ class BoxPlatform(private val service: SingBoxVpnService) : PlatformInterface {
         }
         return InterfaceArrayIterator(result)
     }
+
+    /**
+     * Interface addresses as CIDR strings, filtered to what libbox can parse.
+     *
+     * libbox hands each string to Go's `netip.MustParsePrefix`, which **panics**
+     * rather than returning an error — and a Go panic crossing the gomobile JNI
+     * boundary aborts the whole process, so a single bad string here is a hard
+     * crash, not a logged warning. Three shapes have to be filtered out:
+     *
+     *  - **Scoped IPv6.** `Inet6Address.getHostAddress()` appends the zone for
+     *    link-local addresses (`fe80::1%wlan0`), and netip rejects zones inside
+     *    a prefix. Every Wi-Fi interface carries one, so this is not an edge
+     *    case: unfiltered, it crashes on essentially every device.
+     *  - **Null host addresses**, which would stringify to `"null/24"`.
+     *  - **Out-of-range prefix lengths**, which netip also rejects.
+     */
+    private fun cidrAddresses(java: JavaNetworkInterface): List<String> =
+        runCatching {
+            java.interfaceAddresses.mapNotNull { entry ->
+                val address = entry.address ?: return@mapNotNull null
+                // Drop the "%wlan0" / "%15" zone suffix.
+                val host = address.hostAddress?.substringBefore('%')
+                if (host.isNullOrEmpty()) return@mapNotNull null
+                val bits = entry.networkPrefixLength.toInt()
+                val max = if (address is java.net.Inet4Address) 32 else 128
+                if (bits !in 0..max) return@mapNotNull null
+                "$host/$bits"
+            }
+        }.getOrDefault(emptyList())
 
     private fun buildFlags(java: JavaNetworkInterface): Int {
         var flags = 0

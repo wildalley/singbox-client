@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Launcher icon, master source. Rasterized into the mipmap-*dpi PNGs by
+  scripts/build-icons.sh; the adaptive (API 26+) form is the same geometry hand-
+  translated into android/app/src/main/res/drawable/ic_launcher_*.xml, so any
+  edit here has to be mirrored there.
+
+  The mark is the home screen's connection dial: a gauge ring with its gap at
+  the bottom, a mint segment filling from the ring's start, and the selected
+  node as a solid core. Colours are AppPalette's dark set, not new ones —
+  bg #000E13, violetSoft #B9A9FF for the ring (rule: violet is fill-only,
+  foregrounds take violetSoft), mint #22E1A6 for the live parts.
+
+  This file carries the rounded-square plate that pre-26 Android does not draw
+  for you; the adaptive layers leave the shape to the system mask instead.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108"
+     viewBox="0 0 108 108">
+  <defs>
+    <radialGradient id="glow" cx="54" cy="54" r="54"
+                    gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6C40FF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#6C40FF" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="plate">
+      <rect x="3" y="3" width="102" height="102" rx="24"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#plate)">
+    <rect x="3" y="3" width="102" height="102" rx="24" fill="#000E13"/>
+    <rect x="0" y="0" width="108" height="108" fill="url(#glow)"/>
+  </g>
+
+  <!-- Scaled up from the adaptive geometry: no launcher mask crops this one,
+       so the mark can use the room the 66dp safe circle would deny it. -->
+  <g transform="translate(54,54) scale(1.18) translate(-54,-54)"
+     fill="none" stroke-linecap="round">
+    <path d="M40.25,77.82 A27.5,27.5 0 1 1 67.75,77.82"
+          stroke="#B9A9FF" stroke-width="7"/>
+    <path d="M40.25,77.82 A27.5,27.5 0 0 1 30.18,40.25"
+          stroke="#22E1A6" stroke-width="7"/>
+    <circle cx="54" cy="54" r="8.5" fill="#22E1A6"/>
+  </g>
+</svg>

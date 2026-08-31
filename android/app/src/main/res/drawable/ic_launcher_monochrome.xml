@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer (API 33+). The launcher throws the colour away and keeps
+     the alpha, so this is the foreground with the two-tone dropped: the mint
+     segment sits exactly on the ring and would be invisible once flattened.
+     Same geometry and same safe radius as ic_launcher_foreground.xml. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M40.25,77.82 A27.5,27.5 0 1 1 67.75,77.82"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,45.5 A8.5,8.5 0 1 1 54,62.5 A8.5,8.5 0 1 1 54,45.5 Z" />
+</vector>

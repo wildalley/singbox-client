@@ -6,6 +6,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:singbox_client/data/config_builder.dart';
+import 'package:singbox_client/data/latency_tester.dart';
 import 'package:singbox_client/data/storage.dart';
 import 'package:singbox_client/main.dart';
 import 'package:singbox_client/models/node.dart';
@@ -18,6 +20,7 @@ class FakeProxyController implements ProxyController {
   final _states = StreamController<ProxyState>.broadcast();
   final _traffic = StreamController<ProxyTraffic>.broadcast();
   final _logs = StreamController<ProxyLogEntry>.broadcast();
+  final _groups = StreamController<ProxyGroup>.broadcast();
 
   var _state = ProxyState.disconnected;
 
@@ -25,6 +28,11 @@ class FakeProxyController implements ProxyController {
   final startedConfigs = <String>[];
   final selectedOutbounds = <String>[];
   var stopCount = 0;
+  var urlTestCount = 0;
+
+  /// When set, [urlTest] throws instead of reporting, standing in for a tunnel
+  /// that went away between the connected check and the call.
+  bool urlTestFails = false;
 
   @override
   Stream<ProxyState> get states => _states.stream;
@@ -36,6 +44,9 @@ class FakeProxyController implements ProxyController {
   Stream<ProxyLogEntry> get logs => _logs.stream;
 
   @override
+  Stream<ProxyGroup> get groups => _groups.stream;
+
+  @override
   ProxyState get currentState => _state;
 
   void emit(ProxyState state) {
@@ -45,8 +56,21 @@ class FakeProxyController implements ProxyController {
 
   void emitTraffic(ProxyTraffic value) => _traffic.add(value);
 
-  void emitLog(String message) =>
-      _logs.add(ProxyLogEntry(message: message, at: DateTime.now()));
+  /// Emits a log line, defaulting to now.
+  ///
+  /// [at] exists for the visual snapshots: the logs page renders each entry's
+  /// `hh:mm:ss`, so a wall-clock default would change the golden on every run.
+  void emitLog(String message, {DateTime? at}) =>
+      _logs.add(ProxyLogEntry(message: message, at: at ?? DateTime.now()));
+
+  /// Reports URL-test delays the way the engine's group subscription does:
+  /// [delays] maps an outbound tag to milliseconds, where 0 means "no result".
+  void emitGroup(
+    Map<String, int> delays, {
+    String tag = ConfigTags.proxy,
+    String selected = '',
+  }) =>
+      _groups.add(ProxyGroup(tag: tag, selected: selected, delays: delays));
 
   @override
   Future<bool> requestPermission() async => permissionGranted;
@@ -64,11 +88,18 @@ class FakeProxyController implements ProxyController {
   }
 
   @override
-  Future<void> reload(String configJson) async => startedConfigs.add(configJson);
+  Future<void> reload(String configJson) async =>
+      startedConfigs.add(configJson);
 
   @override
   Future<void> selectOutbound(String outboundTag) async =>
       selectedOutbounds.add(outboundTag);
+
+  @override
+  Future<void> urlTest() async {
+    urlTestCount++;
+    if (urlTestFails) throw StateError('not connected');
+  }
 
   @override
   Future<String?> coreVersion() async => 'v1.13.19';
@@ -78,6 +109,7 @@ class FakeProxyController implements ProxyController {
     _states.close();
     _traffic.close();
     _logs.close();
+    _groups.close();
   }
 }
 
@@ -90,15 +122,37 @@ ProxyNode node(String id, String name) => ProxyNode(
       raw: const {'password': 'secret'},
     );
 
+/// Answers from a table instead of opening sockets.
+///
+/// Only [probe] is overridden: `probeAll` is the real one, so tests still go
+/// through its concurrency pump rather than a stand-in for it.
+class FakeLatencyTester extends LatencyTester {
+  const FakeLatencyTester(this.latencies);
+
+  /// Node id to milliseconds. Anything missing comes back unreachable.
+  final Map<String, int> latencies;
+
+  @override
+  Future<int> probe(ProxyNode node) async =>
+      latencies[node.id] ?? ProxyNode.unreachableLatency;
+}
+
 Future<({AppState state, FakeProxyController controller})> buildState({
   List<ProxyNode> nodes = const [],
+  LatencyTester? latencyTester,
+  Duration? urlTestTimeout,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final storage = await Storage.open();
   if (nodes.isNotEmpty) await storage.writeNodes(nodes);
   final controller = FakeProxyController();
   return (
-    state: AppState(storage: storage, controller: controller),
+    state: AppState(
+      storage: storage,
+      controller: controller,
+      latencyTester: latencyTester,
+      urlTestTimeout: urlTestTimeout,
+    ),
     controller: controller,
   );
 }
@@ -169,6 +223,55 @@ void main() {
     expect(find.text('VPN permission denied'), findsOneWidget);
   });
 
+  testWidgets('a long engine error stays inside its snackbar', (tester) async {
+    // Verbatim from a device: three rule-sets failing DNS, each quoting a URL
+    // and a socket address. Unbounded, this laid itself across the dial, the
+    // connect button and the traffic card. Every other test seeds a short
+    // message, which is exactly why that shipped.
+    const engineError =
+        'initialize rule-set[2]: initial rule-set: geosite-ads: Get '
+        '"https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/'
+        'geosite-category-ads-all.srs": lookup raw.githubusercontent.com: '
+        'read udp [::1]:59673->[::1]:53: read: connection refused | '
+        'initialize rule-set[1]: initial rule-set: geoip-cn: Get '
+        '"https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/'
+        'geoip-cn.srs": lookup raw.githubusercontent.com: read udp '
+        '[::1]:59673->[::1]:53: read: connection refused | '
+        'initialize rule-set[0]: initial rule-set: geosite-cn: Get '
+        '"https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/'
+        'geosite-geolocation-cn.srs": lookup raw.githubusercontent.com: '
+        'read udp [::1]:59673->[::1]:53: read: connection refused';
+
+    final harness = await buildState(nodes: [node('a', 'HK-1')]);
+    addTearDown(harness.state.dispose);
+
+    await tester.pumpWidget(SingBoxApp(state: harness.state));
+    await tester.pumpAndSettle();
+
+    harness.controller.emit(const ProxyState(
+      stage: ProxyStage.error,
+      message: engineError,
+    ));
+    await tester.pumpAndSettle();
+
+    // An unbounded paragraph in a floating snackbar overflows its bar, and a
+    // RenderFlex/paint overflow is an exception in tests.
+    expect(tester.takeException(), isNull);
+
+    // Both places the message surfaces are clamped: the snackbar and the dial's
+    // detail line under it.
+    final texts = tester
+        .widgetList<Text>(find.byType(Text))
+        .where((text) => (text.data ?? '').contains('rule-set'))
+        .toList();
+    expect(texts, isNotEmpty, reason: 'the error should reach the screen');
+    for (final text in texts) {
+      expect(text.maxLines, isNotNull,
+          reason: 'engine text must be clamped: ${text.data?.substring(0, 40)}');
+      expect(text.overflow, TextOverflow.ellipsis);
+    }
+  });
+
   testWidgets('traffic events reach the home screen', (tester) async {
     final harness = await buildState(nodes: [node('a', 'Tokyo')]);
     addTearDown(harness.state.dispose);
@@ -225,6 +328,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('started at tun0'), findsOneWidget);
+  });
+
+  testWidgets('log lines arrive without their terminal colouring',
+      (tester) async {
+    // libbox writes for a terminal, so a real line looks like this. Flutter
+    // renders each escape as a tofu box, and they travel into "Copy all".
+    const raw = '\x1B[37mDEBUG\x1B[0m[0000] '
+        '[\x1B[38;5;83m1604613780\x1B[0m 102ms] '
+        'connection: connection upload finished';
+    final harness = await buildState(nodes: [node('a', 'Tokyo')]);
+    addTearDown(harness.state.dispose);
+
+    await tester.pumpWidget(SingBoxApp(state: harness.state));
+    await tester.pumpAndSettle();
+
+    harness.controller.emitLog(raw);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.receipt_long_outlined));
+    await tester.pumpAndSettle();
+
+    expect(
+      harness.state.logs.single.message,
+      'DEBUG[0000] [1604613780 102ms] connection: connection upload finished',
+      reason: 'the uptime field is libbox output, only the escapes are not',
+    );
+    expect(
+      tester
+          .widgetList<Text>(find.byType(Text))
+          .where((text) => (text.data ?? '').contains('\x1B')),
+      isEmpty,
+    );
   });
 
   testWidgets('settings reports the core version from the platform',

@@ -51,6 +51,9 @@ class _LogsPageState extends State<LogsPage> {
     final logs = widget.state.logs;
 
     return PageFrame(
+      // Fill only when there is a pane to fill. The empty state is a short card
+      // and stretching it to the viewport would look broken.
+      fill: logs.isNotEmpty,
       title: l10n.logsTitle,
       subtitle: logs.isEmpty
           ? l10n.logsNothingLogged
@@ -98,46 +101,42 @@ class _LogsPageState extends State<LogsPage> {
               horizontal: Gap.md,
               vertical: Gap.md,
             ),
-            child: SizedBox(
-              height: 460,
-              child: ListView.builder(
-                controller: _scrollController,
-                itemCount: logs.length,
-                itemBuilder: (context, index) {
-                  final entry = logs[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _clock(entry.at),
-                          style: monoStyle(size: 10, color: palette.faint),
-                        ),
-                        const SizedBox(width: Gap.sm),
-                        Expanded(
-                          child: SelectableText(
-                            entry.message,
-                            style: monoStyle(
-                              size: 11,
-                              color: _colorFor(palette, entry.message),
-                              weight: FontWeight.w400,
-                            ),
+            child: ListView.builder(
+              controller: _scrollController,
+              itemCount: logs.length,
+              itemBuilder: (context, index) {
+                final entry = logs[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _clock(entry.at),
+                        style: monoStyle(size: 10, color: palette.faint),
+                      ),
+                      const SizedBox(width: Gap.sm),
+                      Expanded(
+                        child: SelectableText(
+                          entry.message,
+                          style: monoStyle(
+                            size: 11,
+                            color: _colorFor(palette, entry.message),
+                            weight: FontWeight.w400,
                           ),
                         ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
       ],
     );
   }
 
-  static String _clock(DateTime at) =>
-      '${at.hour.toString().padLeft(2, '0')}:'
+  static String _clock(DateTime at) => '${at.hour.toString().padLeft(2, '0')}:'
       '${at.minute.toString().padLeft(2, '0')}:'
       '${at.second.toString().padLeft(2, '0')}';
 

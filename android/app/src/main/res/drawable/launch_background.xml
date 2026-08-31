@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+<!-- Launch splash. One file for every API level: minSdk is 24, so the
+     template's drawable-v21/ twin could only ever have shadowed this one, and
+     it has been removed rather than kept in sync.
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+     @color/splash_background resolves per uiMode (values/ and values-night/),
+     which is what keeps the pre-first-frame window from flashing white in front
+     of a dark app. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
 </layer-list>

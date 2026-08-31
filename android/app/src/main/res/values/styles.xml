@@ -13,6 +13,9 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- The app background, not the parent theme's white: this window shows
+             between the splash and Flutter's first frame, and behind the UI
+             after. -->
+        <item name="android:windowBackground">@color/splash_background</item>
     </style>
 </resources>

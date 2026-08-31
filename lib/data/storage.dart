@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
 import '../models/node.dart';
+import '../models/node_sort.dart';
 import '../models/subscription.dart';
 
 class Storage {
@@ -21,6 +22,9 @@ class Storage {
   static const _kSubscriptions = 'subscriptions.v1';
   static const _kSettings = 'settings.v1';
   static const _kSelectedNode = 'selected_node.v1';
+  static const _kCollapsedSources = 'collapsed_sources.v1';
+  static const _kClashSecret = 'clash_secret.v1';
+  static const _kNodeSort = 'node_sort.v1';
 
   static Future<Storage> open() async =>
       Storage(await SharedPreferences.getInstance());
@@ -86,4 +90,36 @@ class Storage {
       await _prefs.setString(_kSelectedNode, id);
     }
   }
+
+  /// Source ids whose node list the user folded away on the nodes page.
+  ///
+  /// Persisted rather than held in the page's [State] so that folding a source
+  /// away survives leaving the tab and restarting: it is work the user did, and
+  /// a long list would have to be folded again on every visit.
+  Set<String> readCollapsedSources() =>
+      _prefs.getStringList(_kCollapsedSources)?.toSet() ?? const {};
+
+  Future<void> writeCollapsedSources(Set<String> ids) =>
+      _prefs.setStringList(_kCollapsedSources, ids.toList());
+
+  /// How the nodes page orders rows within a source.
+  ///
+  /// Kept here rather than in [AppSettings] because it changes nothing about the
+  /// tunnel: settings go through `applySettings`, which reloads a running
+  /// config, and reordering a list is no reason to drop connections.
+  NodeSort readNodeSort() => NodeSort.fromKey(_prefs.getString(_kNodeSort));
+
+  Future<void> writeNodeSort(NodeSort sort) =>
+      _prefs.setString(_kNodeSort, sort.key);
+
+  /// The bearer token the running config's Clash API listener requires.
+  ///
+  /// Persisted rather than regenerated per run so that a token handed to
+  /// anything outside the app keeps working, and so a reload mid-session cannot
+  /// change it out from under a live listener. Generated once, then never shown
+  /// or logged — this is a credential like any node's password.
+  String? readClashSecret() => _prefs.getString(_kClashSecret);
+
+  Future<void> writeClashSecret(String secret) =>
+      _prefs.setString(_kClashSecret, secret);
 }

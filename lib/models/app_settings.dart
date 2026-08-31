@@ -40,8 +40,7 @@ enum AppThemeMode {
   light,
   dark;
 
-  static AppThemeMode fromName(String? value) =>
-      AppThemeMode.values.firstWhere(
+  static AppThemeMode fromName(String? value) => AppThemeMode.values.firstWhere(
         (item) => item.name == value,
         orElse: () => AppThemeMode.system,
       );
@@ -241,8 +240,7 @@ class AppSettings {
         mtu: (json['mtu'] as num?)?.toInt() ?? 9000,
         ipv6: json['ipv6'] as bool? ?? false,
         strictRoute: json['strict_route'] as bool? ?? false,
-        dnsRemote:
-            json['dns_remote'] as String? ?? 'https://1.1.1.1/dns-query',
+        dnsRemote: json['dns_remote'] as String? ?? 'https://1.1.1.1/dns-query',
         dnsDirect:
             json['dns_direct'] as String? ?? 'https://223.5.5.5/dns-query',
         blockAds: json['block_ads'] as bool? ?? true,

@@ -152,6 +152,35 @@ class L10nZh extends L10n {
   String get homeConnections => '连接数';
 
   @override
+  String get homeMemory => '内存占用';
+
+  @override
+  String get homeLatency => '延迟';
+
+  @override
+  String get homeAvailableNodes => '可用节点';
+
+  @override
+  String homeAvailableOf(int available, int total) {
+    return '$available / $total';
+  }
+
+  @override
+  String get homeUptime => '已运行';
+
+  @override
+  String get homeOverview => '概况';
+
+  @override
+  String get homeTrafficFlow => '流量趋势';
+
+  @override
+  String get homeLastMinute => '近 60 秒';
+
+  @override
+  String get homeUntestedNodes => '尚未测速';
+
+  @override
   String get nodesTitle => '节点';
 
   @override
@@ -168,6 +197,21 @@ class L10nZh extends L10n {
 
   @override
   String get nodesGroupManual => '手动添加';
+
+  @override
+  String get nodesSortLatency => '按延迟排序';
+
+  @override
+  String get nodesSortSource => '按订阅原有顺序排序';
+
+  @override
+  String get nodesSourceAll => '全部来源';
+
+  @override
+  String get nodesAuto => '自动选择';
+
+  @override
+  String get nodesAutoBody => '由内核测速并选出最快的节点';
 
   @override
   String get nodesNoMatches => '没有匹配项';
@@ -267,10 +311,31 @@ class L10nZh extends L10n {
   String get rulesStateOn => '开启';
 
   @override
+  String get rulesBadgeDirect => 'DIRECT';
+
+  @override
+  String get rulesBadgeProxy => 'PROXY';
+
+  @override
+  String get rulesBadgeBlock => 'BLOCK';
+
+  @override
+  String get rulesBadgeDns => 'DNS';
+
+  @override
   String get rulesChinaDirectBody => 'geosite-cn 与 geoip-cn 绕过代理';
 
   @override
-  String get rulesSetsNote => '规则集在首次使用时从 sing-geosite 镜像下载,每周自动更新。';
+  String get rulesFallback => '其余流量';
+
+  @override
+  String get rulesFallbackProxy => '走当前选中的节点';
+
+  @override
+  String get rulesFallbackDirect => '直接出网,隧道保持开启';
+
+  @override
+  String get rulesSetsNote => '规则集随应用内置,可在设置中更新;新下载的列表在下次连接时生效。';
 
   @override
   String get logsTitle => '日志';
@@ -333,6 +398,23 @@ class L10nZh extends L10n {
 
   @override
   String get settingsStrictRouteBody => '阻止试图绕过隧道的流量';
+
+  @override
+  String get settingsRouting => '路由';
+
+  @override
+  String get settingsRuleSets => '规则集';
+
+  @override
+  String get settingsRuleSetsBundled => '随应用内置';
+
+  @override
+  String settingsRuleSetsDownloaded(String ago) {
+    return '$ago已更新';
+  }
+
+  @override
+  String get settingsRuleSetsRemote => '由内核在启动时下载';
 
   @override
   String get settingsNetwork => '网络';
@@ -494,6 +576,29 @@ class L10nZh extends L10n {
 
   @override
   String get importedDefaultName => '已导入';
+
+  @override
+  String get noticeImportUnreachable => '无法连接订阅地址;若它已被屏蔽,请先连接再更新';
+
+  @override
+  String noticeImportHttpStatus(int code) {
+    return '订阅地址返回 HTTP $code';
+  }
+
+  @override
+  String get noticeImportUnusable => '返回的内容里没有可用节点';
+
+  @override
+  String get noticeImportBadSource => '这不是可用的订阅或配置';
+
+  @override
+  String get noticeRuleSetsUpdated => '规则集已更新,下次连接时生效';
+
+  @override
+  String get noticeRuleSetsUpdateFailed => '规则集更新失败,继续使用当前列表';
+
+  @override
+  String get noticeRuleSetsUnavailable => '当前平台没有本地规则集可更新';
 
   @override
   String platformUnsupported(String platform) {

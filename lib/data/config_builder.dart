@@ -6,9 +6,11 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import '../models/app_settings.dart';
 import '../models/node.dart';
+import 'rule_sets.dart';
 
 /// Outbound tags referenced by generated route rules.
 class ConfigTags {
@@ -20,19 +22,41 @@ class ConfigTags {
 class ConfigBuilder {
   const ConfigBuilder._();
 
-  /// Local Clash API port, also used to read traffic when the platform layer
-  /// cannot provide it.
+  /// Local Clash API port. Nothing in the app talks to it — libbox reaches the
+  /// runtime over its own command socket — but the listener has to exist for the
+  /// clash-mode rules and the traffic figures libbox reads from it, so it is
+  /// bound to loopback and gated behind a secret rather than switched off.
   static const clashApiPort = 9291;
+
+  /// Loopback HTTP/SOCKS inbound, on 127.0.0.1 only.
+  ///
+  /// Two consumers: `systemProxy` advertises this address to Android, and the
+  /// in-app rule-set update sends its download through it. The second one is why
+  /// the inbound is unconditional — the app's own package is excluded from the
+  /// tunnel, so this is the only way anything the app fetches can leave through
+  /// the selected node.
+  static const localProxyPort = 2080;
 
   /// Builds the full configuration.
   ///
   /// [nodes] become individual outbounds plus a `selector`; [selectedNodeId]
   /// is the selector default. When [nodes] is empty the proxy selector falls
   /// back to direct so the service can still start.
+  ///
+  /// [ruleSetDir] is where `BundledRuleSets` unpacked the shipped `.srs` files.
+  /// Given one, the rule-sets are `local` and start needs no network; without
+  /// one they fall back to `remote`, which is fatal on an unreachable URL.
+  ///
+  /// [clashSecret] is the bearer token for the Clash API listener. Required, not
+  /// defaulted: on Android every app on the device can reach 127.0.0.1, so an
+  /// unauthenticated listener lets any of them switch the user's outbound and
+  /// read their connection list. Nothing may render this config without one.
   static Map<String, dynamic> build({
     required List<ProxyNode> nodes,
     required String? selectedNodeId,
     required AppSettings settings,
+    required String clashSecret,
+    String? ruleSetDir,
   }) {
     final nodeTags = <String, String>{};
     final outbounds = <Map<String, dynamic>>[];
@@ -61,9 +85,10 @@ class ConfigBuilder {
         'interval': '3m',
         'tolerance': 50,
       });
-      final defaultTag = selectedNodeId != null && nodeTags[selectedNodeId] != null
-          ? nodeTags[selectedNodeId]!
-          : ConfigTags.auto;
+      final defaultTag =
+          selectedNodeId != null && nodeTags[selectedNodeId] != null
+              ? nodeTags[selectedNodeId]!
+              : ConfigTags.auto;
       outbounds.add({
         'type': 'selector',
         'tag': ConfigTags.proxy,
@@ -83,10 +108,11 @@ class ConfigBuilder {
       'dns': _dns(settings),
       'inbounds': _inbounds(settings),
       'outbounds': outbounds,
-      'route': _route(settings),
+      'route': _route(settings, ruleSetDir),
       'experimental': {
         'clash_api': {
           'external_controller': '127.0.0.1:$clashApiPort',
+          'secret': clashSecret,
         },
         'cache_file': {
           'enabled': true,
@@ -107,17 +133,41 @@ class ConfigBuilder {
         'detour': ConfigTags.proxy,
       },
       // Direct lookups for domains routed around the proxy.
+      //
+      // No `detour` here. A DNS server already dials directly by default, and
+      // sing-box treats a `direct` outbound carrying no dialer options as
+      // empty, then rejects the config at startup: "detour to an empty direct
+      // outbound makes no sense" (common/dialer/detour.go).
       {
         'type': settings.directDnsType,
         'tag': 'dns-direct',
         'server': settings.directDnsHost,
         if (settings.directDnsPath.isNotEmpty) 'path': settings.directDnsPath,
-        'detour': ConfigTags.direct,
+        // Dropping the detour turns on the resolve path for this server, and a
+        // DNS server never falls back to route.default_domain_resolver, so a
+        // hostname (rather than an IP) has to name its resolver here or start
+        // fails with "missing domain resolver for domain server address".
+        if (!_isIpLiteral(settings.directDnsHost))
+          'domain_resolver': {'server': 'dns-bootstrap'},
       },
-      // System resolver, used to bootstrap the servers above.
+      // Bootstrap resolver: the one lookup path that has to work *before* the
+      // tunnel exists, so it must not depend on either.
+      //
+      // This was `{'type': 'local'}`, which delegates to the platform. Android
+      // only answers that if PlatformInterface.localDNSTransport() is
+      // implemented; ours returns null, so libbox fell back to Go's resolver
+      // reading /etc/resolv.conf — a file with no usable nameserver on Android.
+      // Go then defaults to loopback and every startup lookup died with
+      // "read udp [::1]:53: connection refused", taking the remote rule-set
+      // downloads (and therefore the whole start) with it.
+      //
+      // Plain UDP at an IP literal needs no resolver to be reached itself, and
+      // a DNS server dials directly by default, so this works on a bare
+      // network interface with no tunnel up.
       {
-        'type': 'local',
-        'tag': 'dns-local',
+        'type': 'udp',
+        'tag': 'dns-bootstrap',
+        'server': _bootstrapDnsHost(settings),
       },
     ];
 
@@ -185,14 +235,27 @@ class ConfigBuilder {
             'http_proxy': {
               'enabled': true,
               'server': '127.0.0.1',
-              'server_port': 2080,
+              // The mixed inbound below is what makes this address answer; an
+              // advertised proxy with nothing behind it breaks every app that
+              // honours the system setting.
+              'server_port': localProxyPort,
             },
           },
+      },
+      // Loopback proxy for traffic that cannot use the tun: the app itself is
+      // excluded from the VPN, so its own requests (the rule-set update) reach
+      // the tunnel only through here. Bound to 127.0.0.1 deliberately — the
+      // sing-box default listen address would expose an open proxy to the LAN.
+      {
+        'type': 'mixed',
+        'tag': 'mixed-in',
+        'listen': '127.0.0.1',
+        'listen_port': localProxyPort,
       },
     ];
   }
 
-  static Map<String, dynamic> _route(AppSettings settings) {
+  static Map<String, dynamic> _route(AppSettings settings, String? ruleSetDir) {
     final rules = <Map<String, dynamic>>[
       // Sniff first so domain rules can match on TLS/HTTP hostnames.
       {'action': 'sniff'},
@@ -206,12 +269,12 @@ class ConfigBuilder {
     ];
 
     final ruleSets = <Map<String, dynamic>>[
-      _remoteRuleSet('geosite-cn', 'geosite', 'geolocation-cn'),
-      _remoteRuleSet('geoip-cn', 'geoip', 'cn'),
+      _ruleSet('geosite-cn', ruleSetDir),
+      _ruleSet('geoip-cn', ruleSetDir),
     ];
 
     if (settings.blockAds) {
-      ruleSets.add(_remoteRuleSet('geosite-ads', 'geosite', 'category-ads-all'));
+      ruleSets.add(_ruleSet('geosite-ads', ruleSetDir));
       rules.add({
         'rule_set': ['geosite-ads'],
         'action': 'reject',
@@ -234,21 +297,50 @@ class ConfigBuilder {
         RoutingMode.rule => ConfigTags.proxy,
       },
       'auto_detect_interface': true,
+      // Resolves outbound server hostnames — and, when the rule-sets fall back
+      // to `remote`, their download URLs too. Either way this runs at start,
+      // before any tunnel exists, so it has to be the bootstrap server rather
+      // than `local`.
       'default_domain_resolver': {
-        'server': 'dns-local',
+        'server': 'dns-bootstrap',
       },
     };
   }
 
-  static Map<String, dynamic> _remoteRuleSet(
-      String tag, String kind, String name) {
+  /// One entry for `route.rule_set`, local when the files are on disk.
+  static Map<String, dynamic> _ruleSet(String tag, String? dir) =>
+      dir == null ? _remoteRuleSet(tag) : _localRuleSet(tag, dir);
+
+  /// A rule-set read straight off disk: no network, so it cannot fail the start.
+  ///
+  /// This is the path Android takes; see `lib/data/rule_sets.dart` for why
+  /// downloading them is not an option here.
+  static Map<String, dynamic> _localRuleSet(String tag, String dir) {
+    return {
+      'type': 'local',
+      'tag': tag,
+      'format': 'binary',
+      // Through BundledRuleSets so this is the same name the unpacking writes.
+      'path': '$dir/${BundledRuleSets.fileName(tag)}',
+    };
+  }
+
+  /// Fallback for a platform with no unpacked rule-sets.
+  ///
+  /// A failed fetch here aborts the whole start — sing-box has no per-rule-set
+  /// optional flag — so this is the fragile path, kept only because a missing
+  /// local file leaves nowhere else to read the lists from.
+  static Map<String, dynamic> _remoteRuleSet(String tag) {
     return {
       'type': 'remote',
       'tag': tag,
       'format': 'binary',
-      'url':
-          'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/$kind-$name.srs',
-      'download_detour': ConfigTags.direct,
+      // One table of upstream URLs, shared with the updater.
+      'url': BundledRuleSets.upstreamUrl(tag).toString(),
+      // Through the tunnel, not around it. These are the CN rule-sets, so the
+      // user fetching them is the user who cannot reach raw.githubusercontent
+      // .com directly; `direct` here fails for exactly the audience it serves.
+      'download_detour': ConfigTags.proxy,
       'update_interval': '7d',
     };
   }
@@ -270,6 +362,34 @@ class ConfigBuilder {
         .replaceAll(RegExp(r'^_|_$'), '');
     if (cleaned.isEmpty) return 'node';
     return cleaned.length > 40 ? cleaned.substring(0, 40) : cleaned;
+  }
+
+  /// Plain-UDP address for the bootstrap resolver.
+  ///
+  /// Reuses the direct DNS host when the user already gave an IP literal, so
+  /// one setting covers both and a user behind a filtered path can redirect the
+  /// bootstrap too. A DoH/DoT hostname cannot serve here — resolving it is the
+  /// very thing this server exists to do — so those fall back to a public
+  /// anycast address.
+  static String _bootstrapDnsHost(AppSettings settings) {
+    final direct = settings.directDnsHost;
+    return _isIpLiteral(direct) ? direct : _fallbackBootstrapDns;
+  }
+
+  /// AliDNS: reachable from inside and outside mainland China, which is where
+  /// the bundled rule-sets are aimed.
+  static const _fallbackBootstrapDns = '223.5.5.5';
+
+  /// Whether [host] is a bare IP address rather than a hostname.
+  ///
+  /// Decides both whether a DNS server needs its own `domain_resolver` (the IP
+  /// form needs no resolution, so it must not carry one) and whether a host can
+  /// serve as the bootstrap resolver.
+  static bool _isIpLiteral(String host) {
+    final bare = host.startsWith('[') && host.endsWith(']')
+        ? host.substring(1, host.length - 1)
+        : host;
+    return InternetAddress.tryParse(bare) != null;
   }
 
   static String encode(Map<String, dynamic> config) =>

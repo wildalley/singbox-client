@@ -379,6 +379,60 @@ abstract class L10n {
   /// **'Connections'**
   String get homeConnections;
 
+  /// No description provided for @homeMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Memory'**
+  String get homeMemory;
+
+  /// No description provided for @homeLatency.
+  ///
+  /// In en, this message translates to:
+  /// **'Latency'**
+  String get homeLatency;
+
+  /// No description provided for @homeAvailableNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Available nodes'**
+  String get homeAvailableNodes;
+
+  /// Nodes that answered a latency probe, out of the total imported.
+  ///
+  /// In en, this message translates to:
+  /// **'{available} / {total}'**
+  String homeAvailableOf(int available, int total);
+
+  /// No description provided for @homeUptime.
+  ///
+  /// In en, this message translates to:
+  /// **'Uptime'**
+  String get homeUptime;
+
+  /// No description provided for @homeOverview.
+  ///
+  /// In en, this message translates to:
+  /// **'Overview'**
+  String get homeOverview;
+
+  /// No description provided for @homeTrafficFlow.
+  ///
+  /// In en, this message translates to:
+  /// **'Traffic flow'**
+  String get homeTrafficFlow;
+
+  /// No description provided for @homeLastMinute.
+  ///
+  /// In en, this message translates to:
+  /// **'Last 60s'**
+  String get homeLastMinute;
+
+  /// No description provided for @homeUntestedNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Not tested yet'**
+  String get homeUntestedNodes;
+
   /// No description provided for @nodesTitle.
   ///
   /// In en, this message translates to:
@@ -414,6 +468,36 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Manual'**
   String get nodesGroupManual;
+
+  /// Tooltip on the sort button while the list is in source order: names what tapping it does, not the current state.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort by latency'**
+  String get nodesSortLatency;
+
+  /// Tooltip on the sort button while the list is in latency order. 'Source order' is the order the subscription itself handed the nodes over.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort by source order'**
+  String get nodesSortSource;
+
+  /// Source picker, shown only with more than one source: without it the second subscription's nodes are only reachable by scrolling past all of the first's.
+  ///
+  /// In en, this message translates to:
+  /// **'All sources'**
+  String get nodesSourceAll;
+
+  /// The urltest group as a selection: the engine measures the nodes and picks the fastest by itself. Named as a choice alongside the nodes, not as a setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get nodesAuto;
+
+  /// No description provided for @nodesAutoBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Fastest node, chosen by the engine'**
+  String get nodesAutoBody;
 
   /// No description provided for @nodesNoMatches.
   ///
@@ -601,16 +685,58 @@ abstract class L10n {
   /// **'On'**
   String get rulesStateOn;
 
+  /// Badge on a rule row: matching traffic leaves without the proxy. Mirrors the sing-box outbound keyword, so it stays uppercase Latin in every locale.
+  ///
+  /// In en, this message translates to:
+  /// **'DIRECT'**
+  String get rulesBadgeDirect;
+
+  /// Badge on a rule row: matching traffic goes through the selected node. Mirrors the sing-box outbound keyword, so it stays uppercase Latin in every locale.
+  ///
+  /// In en, this message translates to:
+  /// **'PROXY'**
+  String get rulesBadgeProxy;
+
+  /// Badge on a rule row: matching traffic is rejected. Mirrors the sing-box reject action, so it stays uppercase Latin in every locale.
+  ///
+  /// In en, this message translates to:
+  /// **'BLOCK'**
+  String get rulesBadgeBlock;
+
+  /// Badge on the DNS interception row. That rule hijacks queries to the built-in resolver rather than routing them, so it gets its own verb instead of DIRECT/PROXY/BLOCK.
+  ///
+  /// In en, this message translates to:
+  /// **'DNS'**
+  String get rulesBadgeDns;
+
   /// No description provided for @rulesChinaDirectBody.
   ///
   /// In en, this message translates to:
   /// **'geosite-cn and geoip-cn bypass the proxy'**
   String get rulesChinaDirectBody;
 
-  /// No description provided for @rulesSetsNote.
+  /// The last rule row: the config's `final` outbound, which catches traffic no earlier rule matched.
   ///
   /// In en, this message translates to:
-  /// **'Rule sets are downloaded from the sing-geosite mirror on first use and refreshed weekly.'**
+  /// **'Everything else'**
+  String get rulesFallback;
+
+  /// No description provided for @rulesFallbackProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Goes through the selected node'**
+  String get rulesFallbackProxy;
+
+  /// No description provided for @rulesFallbackDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Leaves directly; the tunnel stays up'**
+  String get rulesFallbackDirect;
+
+  /// Footer under the rule list. The lists are unpacked from the app on first run rather than fetched, and the engine reads them off disk when it starts, so an update cannot reach a running tunnel.
+  ///
+  /// In en, this message translates to:
+  /// **'Rule sets ship with the app and update from Settings. A new download applies at the next connect.'**
   String get rulesSetsNote;
 
   /// No description provided for @logsTitle.
@@ -732,6 +858,36 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Block traffic that tries to escape the tunnel'**
   String get settingsStrictRouteBody;
+
+  /// No description provided for @settingsRouting.
+  ///
+  /// In en, this message translates to:
+  /// **'Routing'**
+  String get settingsRouting;
+
+  /// No description provided for @settingsRuleSets.
+  ///
+  /// In en, this message translates to:
+  /// **'Rule sets'**
+  String get settingsRuleSets;
+
+  /// No description provided for @settingsRuleSetsBundled.
+  ///
+  /// In en, this message translates to:
+  /// **'Bundled with the app'**
+  String get settingsRuleSetsBundled;
+
+  /// No description provided for @settingsRuleSetsDownloaded.
+  ///
+  /// In en, this message translates to:
+  /// **'downloaded {ago}'**
+  String settingsRuleSetsDownloaded(String ago);
+
+  /// No description provided for @settingsRuleSetsRemote.
+  ///
+  /// In en, this message translates to:
+  /// **'Fetched by the engine at start'**
+  String get settingsRuleSetsRemote;
 
   /// No description provided for @settingsNetwork.
   ///
@@ -1014,6 +1170,48 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Imported'**
   String get importedDefaultName;
+
+  /// Nothing answered: offline, blocked, or the TLS handshake was dropped. The hint matters because the app's own traffic does not go through the tunnel unless it is aimed at the local inbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not reach the subscription. If it is blocked, connect first, then update again.'**
+  String get noticeImportUnreachable;
+
+  /// No description provided for @noticeImportHttpStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'The subscription returned HTTP {code}'**
+  String noticeImportHttpStatus(int code);
+
+  /// No description provided for @noticeImportUnusable.
+  ///
+  /// In en, this message translates to:
+  /// **'No usable nodes in what came back'**
+  String get noticeImportUnusable;
+
+  /// No description provided for @noticeImportBadSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Not a usable subscription or config'**
+  String get noticeImportBadSource;
+
+  /// The engine reads local rule-sets when it starts, so a fresh download cannot apply to a running tunnel.
+  ///
+  /// In en, this message translates to:
+  /// **'Rule sets updated — active at the next connect'**
+  String get noticeRuleSetsUpdated;
+
+  /// No description provided for @noticeRuleSetsUpdateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update the rule sets; keeping the current lists'**
+  String get noticeRuleSetsUpdateFailed;
+
+  /// No description provided for @noticeRuleSetsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This platform has no local rule sets to update'**
+  String get noticeRuleSetsUnavailable;
 
   /// No description provided for @platformUnsupported.
   ///

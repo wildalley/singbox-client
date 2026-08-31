@@ -11,11 +11,18 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import '../models/proxy_state.dart';
+import 'app_paths.dart';
 
 abstract interface class ProxyController {
   Stream<ProxyState> get states;
   Stream<ProxyTraffic> get traffic;
   Stream<ProxyLogEntry> get logs;
+
+  /// Outbound group updates, including each member's URL-test delay.
+  ///
+  /// The engine pushes these on its own schedule as well as after [urlTest],
+  /// so a listener sees results trickle in rather than one final answer.
+  Stream<ProxyGroup> get groups;
 
   ProxyState get currentState;
 
@@ -33,6 +40,13 @@ abstract interface class ProxyController {
   /// Selects [outboundTag] inside the `selector` group at runtime.
   Future<void> selectOutbound(String outboundTag);
 
+  /// Asks the engine to URL-test every member of the main selector group.
+  ///
+  /// Returns as soon as the request is handed over: the delays arrive later on
+  /// [groups]. Throws when the tunnel is not running, so callers can fall back
+  /// to probing the nodes themselves.
+  Future<void> urlTest();
+
   /// Version of the bundled proxy core, or null when it cannot be determined.
   Future<String?> coreVersion();
 
@@ -42,9 +56,7 @@ abstract interface class ProxyController {
 /// Android implementation backed by `SingBoxVpnService` + libbox.
 class AndroidProxyController implements ProxyController {
   AndroidProxyController() {
-    _events
-        .receiveBroadcastStream()
-        .listen(_onEvent, onError: _onEventError);
+    _events.receiveBroadcastStream().listen(_onEvent, onError: _onEventError);
     // Recover state if the service outlived the Flutter engine.
     _method.invokeMethod<Map<Object?, Object?>>('status').then(
       (value) {
@@ -54,12 +66,13 @@ class AndroidProxyController implements ProxyController {
     );
   }
 
-  static const _method = MethodChannel('singbox/control');
+  static const _method = MethodChannel(appControlChannel);
   static const _events = EventChannel('singbox/events');
 
   final _stateController = StreamController<ProxyState>.broadcast();
   final _trafficController = StreamController<ProxyTraffic>.broadcast();
   final _logController = StreamController<ProxyLogEntry>.broadcast();
+  final _groupController = StreamController<ProxyGroup>.broadcast();
 
   var _state = ProxyState.disconnected;
 
@@ -71,6 +84,9 @@ class AndroidProxyController implements ProxyController {
 
   @override
   Stream<ProxyLogEntry> get logs => _logController.stream;
+
+  @override
+  Stream<ProxyGroup> get groups => _groupController.stream;
 
   @override
   ProxyState get currentState => _state;
@@ -96,6 +112,14 @@ class AndroidProxyController implements ProxyController {
             message: (map['message'] ?? '').toString(),
             at: DateTime.now(),
           ));
+        }
+      case 'groups':
+        final groups = map['groups'];
+        if (groups is! List || _groupController.isClosed) return;
+        for (final group in groups) {
+          if (group is Map) {
+            _groupController.add(ProxyGroup.fromMap(group.cast()));
+          }
         }
     }
   }
@@ -170,6 +194,11 @@ class AndroidProxyController implements ProxyController {
   }
 
   @override
+  Future<void> urlTest() async {
+    await _method.invokeMethod<void>('urlTest');
+  }
+
+  @override
   Future<String?> coreVersion() async {
     try {
       return await _method.invokeMethod<String>('version');
@@ -183,6 +212,7 @@ class AndroidProxyController implements ProxyController {
     _stateController.close();
     _trafficController.close();
     _logController.close();
+    _groupController.close();
   }
 }
 
@@ -207,6 +237,9 @@ class UnsupportedProxyController implements ProxyController {
   Stream<ProxyLogEntry> get logs => const Stream.empty();
 
   @override
+  Stream<ProxyGroup> get groups => const Stream.empty();
+
+  @override
   ProxyState get currentState => _state;
 
   @override
@@ -229,6 +262,9 @@ class UnsupportedProxyController implements ProxyController {
 
   @override
   Future<void> selectOutbound(String outboundTag) async {}
+
+  @override
+  Future<void> urlTest() async {}
 
   @override
   Future<String?> coreVersion() async => null;

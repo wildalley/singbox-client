@@ -82,6 +82,18 @@ object BoxEvents {
         emit(mapOf("type" to "log", "message" to message))
     }
 
+    /**
+     * Outbound groups as the engine reports them: each member's URL-test delay,
+     * and which member the group is sending through.
+     *
+     * [groups] is already flattened into channel-safe maps, because the libbox
+     * iterators it came from are only valid inside the callback that handed them
+     * over.
+     */
+    fun emitGroups(groups: List<Map<String, Any?>>) {
+        emit(mapOf("type" to "groups", "groups" to groups))
+    }
+
     private fun emit(event: Map<String, Any?>) {
         listener?.onEvent(event)
     }

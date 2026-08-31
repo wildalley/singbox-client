@@ -8,12 +8,17 @@ import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/subscription.dart';
 import '../state/app_state.dart';
+import '../version.dart';
+import 'clock.dart';
 import 'import_sheet.dart';
+import 'json_highlight.dart';
+import 'notice_text.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key, required this.state, required this.onOpenLogs});
+  const SettingsPage(
+      {super.key, required this.state, required this.onOpenLogs});
 
   final AppState state;
   final VoidCallback onOpenLogs;
@@ -40,32 +45,9 @@ class SettingsPage extends StatelessWidget {
             ),
           ],
         ),
-        SettingGroup(
-          title: l10n.settingsAppearance,
-          rows: [
-            SettingRow(
-              icon: Icons.contrast_outlined,
-              title: l10n.settingsTheme,
-              subtitle: switch (settings.themeMode) {
-                AppThemeMode.system => l10n.settingsThemeSystem,
-                AppThemeMode.light => l10n.settingsThemeLight,
-                AppThemeMode.dark => l10n.settingsThemeDark,
-              },
-              trailing: _ThemeMenu(state: state),
-            ),
-            SettingRow(
-              icon: Icons.translate_outlined,
-              title: l10n.settingsLanguage,
-              subtitle: switch (settings.language) {
-                AppLanguage.system => l10n.settingsLanguageSystem,
-                // Endonyms: a language is named in its own language, in any UI.
-                AppLanguage.english => 'English',
-                AppLanguage.chinese => '中文',
-              },
-              trailing: _LanguageMenu(state: state),
-            ),
-          ],
-        ),
+        // Order follows how often a setting is reached for: what the tunnel is,
+        // then how names resolve, then cosmetics. Appearance used to sit second,
+        // above the settings that actually change how traffic moves.
         SettingGroup(
           title: l10n.settingsProxy,
           rows: [
@@ -75,13 +57,13 @@ class SettingsPage extends StatelessWidget {
               subtitle: settings.tunStack.label,
               trailing: _StackMenu(state: state),
             ),
+            // MTU lives here rather than under Network: it is a `tun` field in
+            // the generated config, same as the stack and strict route.
             SettingRow(
-              icon: Icons.shield_outlined,
-              title: l10n.settingsSystemProxy,
-              subtitle: l10n.settingsSystemProxyBody,
-              value: settings.systemProxy,
-              onChanged: (value) =>
-                  state.applySettings(settings.copyWith(systemProxy: value)),
+              icon: Icons.straighten_outlined,
+              title: l10n.settingsMtu,
+              subtitle: '${settings.mtu}',
+              onTap: () => _editMtu(context),
             ),
             SettingRow(
               icon: Icons.alt_route_outlined,
@@ -91,7 +73,21 @@ class SettingsPage extends StatelessWidget {
               onChanged: (value) =>
                   state.applySettings(settings.copyWith(strictRoute: value)),
             ),
+            SettingRow(
+              icon: Icons.shield_outlined,
+              title: l10n.settingsSystemProxy,
+              subtitle: l10n.settingsSystemProxyBody,
+              value: settings.systemProxy,
+              onChanged: (value) =>
+                  state.applySettings(settings.copyWith(systemProxy: value)),
+            ),
           ],
+        ),
+        // Between Proxy and Network: the rule-sets decide *where* a packet goes,
+        // which is one step above how its name was resolved.
+        SettingGroup(
+          title: l10n.settingsRouting,
+          rows: [_RuleSetsRow(state: state)],
         ),
         SettingGroup(
           title: l10n.settingsNetwork,
@@ -126,11 +122,31 @@ class SettingsPage extends StatelessWidget {
               onChanged: (value) =>
                   state.applySettings(settings.copyWith(ipv6: value)),
             ),
+          ],
+        ),
+        SettingGroup(
+          title: l10n.settingsAppearance,
+          rows: [
             SettingRow(
-              icon: Icons.straighten_outlined,
-              title: l10n.settingsMtu,
-              subtitle: '${settings.mtu}',
-              onTap: () => _editMtu(context),
+              icon: Icons.contrast_outlined,
+              title: l10n.settingsTheme,
+              subtitle: switch (settings.themeMode) {
+                AppThemeMode.system => l10n.settingsThemeSystem,
+                AppThemeMode.light => l10n.settingsThemeLight,
+                AppThemeMode.dark => l10n.settingsThemeDark,
+              },
+              trailing: _ThemeMenu(state: state),
+            ),
+            SettingRow(
+              icon: Icons.translate_outlined,
+              title: l10n.settingsLanguage,
+              subtitle: switch (settings.language) {
+                AppLanguage.system => l10n.settingsLanguageSystem,
+                // Endonyms: a language is named in its own language, in any UI.
+                AppLanguage.english => 'English',
+                AppLanguage.chinese => '中文',
+              },
+              trailing: _LanguageMenu(state: state),
             ),
           ],
         ),
@@ -163,7 +179,7 @@ class SettingsPage extends StatelessWidget {
             SettingRow(
               icon: Icons.info_outline,
               title: l10n.settingsAppVersion,
-              subtitle: '0.1.0',
+              subtitle: appVersion,
             ),
             SettingRow(
               icon: Icons.inventory_2_outlined,
@@ -275,7 +291,8 @@ class SettingsPage extends StatelessWidget {
         builder: (context, controller) => Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.xl, Gap.md, Gap.sm),
+              padding:
+                  const EdgeInsets.fromLTRB(Gap.xl, Gap.xl, Gap.md, Gap.sm),
               child: Row(
                 children: [
                   Expanded(
@@ -322,9 +339,14 @@ class SettingsPage extends StatelessWidget {
               child: SingleChildScrollView(
                 controller: controller,
                 padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xxl),
-                child: SelectableText(
-                  config,
-                  style: monoStyle(size: 11, color: palette.text),
+                // Selectable and copyable, but deliberately not editable: the
+                // config is generated, so an editor here would invite changes
+                // the next render would silently discard.
+                child: SelectableText.rich(
+                  TextSpan(
+                    style: monoStyle(size: 11, color: palette.text),
+                    children: highlightJson(config, palette),
+                  ),
                 ),
               ),
             ),
@@ -346,7 +368,12 @@ class _SubscriptionRow extends StatelessWidget {
     final l10n = L10n.of(context);
     final refreshing = state.isRefreshing(subscription.id);
     final subtitle = switch (subscription) {
-      final item when item.lastError != null => item.lastError!,
+      Subscription(:final SubscriptionFailure lastFailure) =>
+        subscriptionFailureText(
+          l10n,
+          lastFailure,
+          status: subscription.lastFailureStatus,
+        ),
       final item when item.isRemote => item.redactedUrl,
       _ => l10n.nodesCountLabel(subscription.nodeCount),
     };
@@ -411,6 +438,52 @@ class _SubscriptionRow extends StatelessWidget {
     if (confirmed == true) {
       await state.removeSubscription(subscription.id);
     }
+  }
+}
+
+class _RuleSetsRow extends StatelessWidget {
+  const _RuleSetsRow({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final install = state.ruleSetInstall;
+    final updating = state.isUpdatingRuleSets;
+
+    final String subtitle;
+    if (!state.hasLocalRuleSets) {
+      // Nothing was unpacked here, so there is no file to replace: the engine
+      // fetches the lists itself at start on this platform.
+      subtitle = l10n.settingsRuleSetsRemote;
+    } else if (install != null && install.downloaded) {
+      subtitle = l10n.settingsRuleSetsDownloaded(relativeTime(l10n, install.at));
+    } else {
+      // A bundled install's timestamp is when the app first ran, not when the
+      // list was compiled, so showing an age here would invent freshness.
+      subtitle = l10n.settingsRuleSetsBundled;
+    }
+
+    return SettingRow(
+      icon: Icons.rule_folder_outlined,
+      title: l10n.settingsRuleSets,
+      subtitle: subtitle,
+      trailing: IconButton(
+        tooltip: l10n.actionUpdate,
+        // Disabled where there is nothing on disk to update.
+        onPressed: updating || !state.hasLocalRuleSets
+            ? null
+            : () => state.updateRuleSets(),
+        icon: updating
+            ? const SizedBox(
+                width: 15,
+                height: 15,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.refresh, size: 18),
+      ),
+    );
   }
 }
 
