@@ -55,8 +55,21 @@ icons=$work/icons
 
 if wants deb || wants arch; then
   say "flutter build linux --release"
+  # build/flutter_assets is staging shared with debug builds, and neither it nor
+  # the bundle is ever pruned — so a machine that has run a debug build once
+  # keeps handing the release bundle its kernel_blob.bin, a 43 MB JIT snapshot
+  # that AOT output does not use. Clearing both costs seconds and is the only
+  # thing standing between that file and a shipped package.
+  rm -rf "$bundle" "$root/build/flutter_assets"
   flutter build linux --release
   [ -x "$bundle/$BINARY" ] || { echo "bundle missing: $bundle/$BINARY" >&2; exit 1; }
+  # Belt and braces: a release bundle runs from lib/libapp.so and must carry no
+  # snapshot. If that ever inverts, the packages are wrong and this should stop.
+  [ -f "$bundle/lib/libapp.so" ] || { echo "no AOT libapp.so in $bundle" >&2; exit 1; }
+  ! [ -e "$bundle/data/flutter_assets/kernel_blob.bin" ] || {
+    echo "kernel_blob.bin in a release bundle — refusing to package it" >&2
+    exit 1
+  }
 
   # The launcher SVG is the only scalable source; Android's PNGs stop at 192px.
   mkdir -p "$icons"
