@@ -88,6 +88,45 @@ flutter run -d linux
 flutter run -d windows
 ```
 
+### Packaging
+
+`scripts/package.sh` builds the distributables in one pass, into `dist/`:
+
+```bash
+scripts/package.sh
+```
+
+| Artifact | Needs |
+| --- | --- |
+| `singbox-client_<version>_amd64.deb` | nothing past the Linux toolchain — `dpkg-deb` when present, otherwise `ar` + `tar` |
+| `SingBox_Client-<version>-x86_64.AppImage` | `appimagetool` on `PATH`, or `APPIMAGETOOL=/path/to/it` |
+| `singbox-client-<version>-<build>-arm64.apk` | a JDK, an Android SDK, and `android/app/libs/libbox.aar` |
+
+Whatever is missing a tool is skipped with the reason printed; the rest still
+build. Icons are rasterized from `docs/design/icon/ic_launcher.svg` with
+`rsvg-convert`, falling back to the xxxhdpi launcher PNG.
+
+## Continuous integration
+
+`.github/workflows/build.yml` has two jobs: `flutter analyze` plus `flutter
+test`, and the three artifacts above. It runs on `ubuntu-latest`, which supplies
+the JDK 17, Android SDK, and NDK that `scripts/build-libbox.sh` needs and a
+typical desktop checkout does not. `libbox.aar` is cached on `SINGBOX_TAG`, so
+only the first run pays the ~15 minutes to build it.
+
+Every run uploads the artifacts; a pushed `v*` tag also attaches them to a
+GitHub Release.
+
+Two things the workflow deliberately leaves to you:
+
+- **appimagetool** has no apt package, and the workflow will not choose a
+  download source on your behalf. Point the `APPIMAGETOOL_URL` repository
+  variable at a build you trust — and `APPIMAGETOOL_SHA256` at its digest, which
+  the run prints either way — and the AppImage is built. Left unset, that one
+  artifact is skipped and the deb and APK still ship.
+- **Signing** stays on the debug key, as `android/app/build.gradle.kts` already
+  does. The APK is for testing.
+
 ## Verification
 
 ```bash
@@ -143,6 +182,9 @@ missing. Supervised-process and TUN integration is the next step, per
 - arm64 only. Other ABIs need another `scripts/build-libbox.sh` run with a
   different `-target`.
 - Per-app proxy is modelled in settings but has no UI yet.
+- The deb is verified structurally — member order, control fields, root
+  ownership, the `/usr/bin` symlink, the desktop entry — but has never been
+  installed on a Debian or Ubuntu system.
 
 ## Security
 
