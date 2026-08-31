@@ -198,8 +198,6 @@ missing. Supervised-process and TUN integration is the next step, per
 - Both Linux packages are verified structurally — deb member order and control
   fields, `pacman -Qip` metadata, root ownership, the `/usr/bin` symlink, the
   desktop entry — but neither has been installed on a live system.
-- The PKGBUILD says `license=('custom')` because the repository carries no
-  LICENSE file yet. Add one and the value should follow.
 
 ## Security
 
@@ -210,3 +208,22 @@ warns before displaying.
 
 Never commit subscription URLs containing tokens, keystores, or generated
 runtime state.
+
+## License
+
+GPL-3.0-or-later — see [`LICENSE`](LICENSE). Copyright 2026 WildAlley.
+
+The choice is not free: the Android build links `libbox.aar`, compiled from
+[sing-box](https://github.com/SagerNet/sing-box) source, which is GPLv3 *or
+later*. The distributed APK is a combined work, so its terms have to be
+compatible. Two consequences worth knowing before publishing a binary:
+
+- Anyone who receives the APK is entitled to the corresponding source. The
+  repository is private today, so that obligation is not yet met.
+- sing-box adds a clause of its own: no derivative work may use its name or
+  imply association with it without prior consent.
+
+The Linux packages contain no sing-box code — desktop has no proxy runtime — but
+they share this repository, so they carry the same license. The deb declares it
+in `usr/share/doc/singbox-client/copyright`, the Arch package in
+`usr/share/licenses/singbox-client/LICENSE`.

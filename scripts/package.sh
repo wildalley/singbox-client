@@ -110,6 +110,31 @@ if wants deb; then
   stage_tree "$debroot"
   install -d "$debroot/DEBIAN"
 
+  # Debian keeps the license under /usr/share/doc, in this machine-readable
+  # format, and ships the GPLv3 text itself — so it is referenced, not copied.
+  install -d "$debroot/usr/share/doc/$PKG"
+  cat > "$debroot/usr/share/doc/$PKG/copyright" <<COPYRIGHT
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: $APP_NAME
+Source: $URL
+
+Files: *
+Copyright: 2026 WildAlley
+License: GPL-3.0-or-later
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU General Public License as published by the Free Software
+ Foundation, either version 3 of the License, or (at your option) any later
+ version.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ details.
+ .
+ On Debian systems the full text of the GNU General Public License version 3
+ can be found in /usr/share/common-licenses/GPL-3.
+COPYRIGHT
+
   # Installed-Size is what dpkg reports before unpacking; kibibytes.
   installed_size=$(du -ks "$debroot/usr" | cut -f1)
   cat > "$debroot/DEBIAN/control" <<CONTROL
@@ -164,12 +189,15 @@ if wants arch; then
     archdir=$work/arch
     install -d "$archdir"
     stage_tree "$archdir/root"
+    install -Dm644 "$root/LICENSE" \
+      "$archdir/root/usr/share/licenses/$PKG/LICENSE"
 
     # depends: what the bundle actually links against, mapped to packages.
     # gtk3 pulls in the pango/cairo/gdk-pixbuf/atk/harfbuzz/glib/epoxy stack,
     # so listing it covers every NEEDED entry but the three below.
-    # license: the repository carries no LICENSE file yet — 'custom' is a
-    # placeholder, not a claim.
+    # license: GPL-3.0-or-later, because the Android build links libbox built
+    # from sing-box, which is GPLv3+. Arch's own copy lives in
+    # /usr/share/licenses/common/GPL3, so only the verbatim text is installed.
     cat > "$archdir/PKGBUILD" <<PKGBUILD
 pkgname=$PKG
 pkgver=$VERSION
@@ -177,7 +205,7 @@ pkgrel=$BUILD
 pkgdesc='sing-box client'
 arch=('x86_64')
 url='$URL'
-license=('custom')
+license=('GPL-3.0-or-later')
 depends=('gtk3' 'gcc-libs' 'glibc' 'zlib')
 # !strip: the Flutter engine and libapp.so ship as they were built.
 options=('!strip' '!debug')
