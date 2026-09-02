@@ -2,11 +2,18 @@
 library;
 
 import 'package:flutter/material.dart';
+// For BoxParentData, which ReorderSlide reads its own position from.
+import 'package:flutter/rendering.dart';
 
+import 'chart_painting.dart';
 import 'theme.dart';
 
 /// Rounded card with a subtle border and no heavy shadow.
-class Panel extends StatelessWidget {
+///
+/// Tappable panels share one hover, press, and selected treatment. That keeps
+/// the controls in nodes, subscriptions, and other dashboard surfaces feeling
+/// related while avoiding any layout-changing hover effects.
+class Panel extends StatefulWidget {
   const Panel({
     super.key,
     required this.child,
@@ -14,6 +21,7 @@ class Panel extends StatelessWidget {
     this.accent,
     this.onTap,
     this.glowing = false,
+    this.selected = false,
   });
 
   final Widget child;
@@ -27,44 +35,98 @@ class Panel extends StatelessWidget {
   /// carries live state — more than one and the glow stops meaning anything.
   final bool glowing;
 
+  /// Applies a tinted fill and a stronger edge to a selected, tappable item.
+  final bool selected;
+
+  @override
+  State<Panel> createState() => _PanelState();
+}
+
+class _PanelState extends State<Panel> {
+  var _hovered = false;
+  var _pressed = false;
+
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final lit = glowing && accent != null;
+    final interactive = widget.onTap != null;
+    final accent = widget.accent ?? palette.violet;
+    final lit = widget.glowing && widget.accent != null;
+    final elevated = interactive && (_hovered || _pressed);
+
+    var fill = widget.selected
+        ? Color.alphaBlend(accent.withValues(alpha: .10), palette.surface)
+        : palette.surface;
+    if (elevated) {
+      fill = Color.alphaBlend(
+        accent.withValues(alpha: _pressed ? .095 : .045),
+        fill,
+      );
+    }
+
+    final borderColor = widget.selected
+        ? accent.withValues(alpha: .65)
+        : elevated
+            ? accent.withValues(alpha: .38)
+            : widget.accent?.withValues(alpha: lit ? .45 : .28) ??
+                palette.border;
     final decoration = BoxDecoration(
-      color: palette.surface,
+      color: fill,
       borderRadius: BorderRadius.circular(AppRadius.lg),
-      border: Border.all(
-        // A glowing edge needs a brighter line under it, or the halo looks
-        // detached from the panel it belongs to.
-        color: accent?.withValues(alpha: lit ? .45 : .28) ?? palette.border,
-      ),
-      boxShadow: lit
-          ? glow(
-              accent!,
-              intensity: glowIntensity(Theme.of(context).brightness) * .7,
-            )
-          : null,
+      border: Border.all(color: borderColor),
+      boxShadow: [
+        if (lit)
+          ...glow(
+            widget.accent!,
+            intensity: glowIntensity(Theme.of(context).brightness) * .7,
+          ),
+        if (elevated)
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: Theme.of(context).brightness == Brightness.dark
+                  ? (_pressed ? .14 : .09)
+                  : (_pressed ? .07 : .035),
+            ),
+            blurRadius: _pressed ? 8 : 14,
+            offset: Offset(0, _pressed ? 2 : 5),
+          ),
+      ],
     );
 
-    if (onTap == null) {
+    if (!interactive) {
       return Container(
         width: double.infinity,
-        padding: padding,
+        padding: widget.padding,
         decoration: decoration,
-        child: child,
+        child: widget.child,
       );
     }
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: widget.onTap,
+        onHover: (value) {
+          if (_hovered != value && mounted) setState(() => _hovered = value);
+        },
+        onHighlightChanged: (value) {
+          if (_pressed != value && mounted) setState(() => _pressed = value);
+        },
+        mouseCursor: SystemMouseCursors.click,
+        hoverColor: Colors.transparent,
+        highlightColor: Colors.transparent,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: Container(
-          width: double.infinity,
-          padding: padding,
-          decoration: decoration,
-          child: child,
+        child: AnimatedScale(
+          scale: _pressed ? .992 : 1,
+          duration: Motion.fast,
+          curve: Motion.curve,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.curve,
+            width: double.infinity,
+            padding: widget.padding,
+            decoration: decoration,
+            child: widget.child,
+          ),
         ),
       ),
     );
@@ -211,38 +273,46 @@ class PageFrame extends StatelessWidget {
       ],
     );
 
-    // Two shapes, because the scroll ownership differs. Normally the page owns
-    // the scroll and the children stack up as tall as they like. Filling hands
-    // the viewport to one sliver and the last child scrolls inside it, so the
-    // page itself stops scrolling and the inner pane takes over.
-    final content = CustomScrollView(
-      slivers: [
-        SliverPadding(
-          padding: padding,
-          // `children.last` below needs a child to stretch; with none there is
-          // nothing to fill either way, so fall through to the plain list.
-          sliver: fill && children.isNotEmpty
-              ? SliverFillRemaining(
-                  // hasScrollBody stays true (the default) because the child
-                  // contains a ListView. false measures the child's intrinsic
-                  // height, and a viewport refuses to report one — it would have
-                  // to build every item, which is the whole point of being lazy.
-                  // The framework's own assert says as much. True instead hands
-                  // the child the remaining paint extent outright, which is the
-                  // measurement wanted here anyway.
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      header,
-                      ...children.take(children.length - 1),
-                      Expanded(child: children.last),
-                    ],
-                  ),
-                )
-              : SliverList.list(children: [header, ...children]),
+    // Two shapes, because the scroll ownership differs.
+    //
+    // Normally the page owns the scroll and the children stack up as tall as
+    // they like, header included.
+    //
+    // Filling is the other way round: the last child is already a scroller, so
+    // it takes the room the header leaves and the page itself does not scroll at
+    // all. The header sits *outside* any viewport there — it is chrome, and a
+    // title that scrolls away from the pane it labels is a title in the wrong
+    // place.
+    //
+    // This used to be a CustomScrollView with a SliverFillRemaining in both
+    // cases, which put the header inside the scrollable even when filling. The
+    // sliver was sized to the viewport while SliverPadding added 50px on top of
+    // it, so the outer view had exactly that much scroll — just enough to drag
+    // the title out of sight above a log pane that was doing its own scrolling
+    // underneath. Two nested scrollables, and the wrong one moved.
+    final Widget content;
+    if (fill && children.isNotEmpty) {
+      content = Padding(
+        padding: padding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            header,
+            ...children.take(children.length - 1),
+            Expanded(child: children.last),
+          ],
         ),
-      ],
-    );
+      );
+    } else {
+      content = CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: padding,
+            sliver: SliverList.list(children: [header, ...children]),
+          ),
+        ],
+      );
+    }
 
     final centered = Center(
       child: ConstrainedBox(
@@ -251,6 +321,15 @@ class PageFrame extends StatelessWidget {
       ),
     );
 
+    // A RefreshIndicator needs a scrollable of its own to drive it, and in the
+    // filling shape the page has none — the scroller belongs to the last child.
+    // No caller combines the two today; the assert says so rather than leaving a
+    // pull-to-refresh that silently never fires.
+    assert(
+      onRefresh == null || !fill,
+      'PageFrame cannot combine onRefresh with fill: the filling shape has no '
+      'scrollable of its own for the indicator to follow',
+    );
     if (onRefresh == null) return centered;
     return RefreshIndicator(
       onRefresh: onRefresh!,
@@ -276,7 +355,9 @@ class StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return AnimatedContainer(
+      duration: Motion.fast,
+      curve: Motion.curve,
       padding: EdgeInsets.symmetric(
         horizontal: compact ? Gap.sm : 10,
         vertical: compact ? 5 : 8,
@@ -327,6 +408,10 @@ class StatusPill extends StatelessWidget {
 }
 
 /// Segmented control used for routing mode and similar small choices.
+///
+/// One indicator slides between the segments rather than each segment fading its
+/// own fill in and out. Two fills cross-fading reads as two things blinking; one
+/// moving reads as the selection travelling, which is what happened.
 class SegmentedChoice<T> extends StatelessWidget {
   const SegmentedChoice({
     super.key,
@@ -341,6 +426,14 @@ class SegmentedChoice<T> extends StatelessWidget {
   final String Function(T value) labelOf;
   final ValueChanged<T> onChanged;
 
+  /// Edge on the indicator, and the inset it costs the labels.
+  ///
+  /// The labels carry it too. The indicator is a layer of its own now, so it no
+  /// longer contributes its edge to the track's height the way a border on each
+  /// segment did — without this the control loses those two pixels and every
+  /// row below it on the page moves up.
+  static const _edge = 1.0;
+
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
@@ -351,46 +444,79 @@ class SegmentedChoice<T> extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.md),
         border: Border.all(color: palette.border),
       ),
-      child: Row(
+      child: Stack(
         children: [
-          for (final value in values)
-            Expanded(
-              child: GestureDetector(
-                onTap: () => onChanged(value),
-                behavior: HitTestBehavior.opaque,
-                child: AnimatedContainer(
-                  duration: Motion.fast,
-                  curve: Motion.curve,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
+          // Positioned, so it does not size the stack — the row below does, and
+          // painting first puts the indicator behind the labels.
+          Positioned.fill(
+            child: AnimatedAlign(
+              alignment: _indicatorAlignment,
+              duration: motionOf(context, Motion.normal),
+              curve: Motion.curve,
+              child: FractionallySizedBox(
+                widthFactor: 1 / values.length,
+                child: Container(
                   decoration: BoxDecoration(
-                    color: value == selected
-                        ? palette.violet.withValues(alpha: .22)
-                        : Colors.transparent,
+                    color: palette.violet.withValues(alpha: .22),
                     borderRadius: BorderRadius.circular(AppRadius.sm),
                     border: Border.all(
-                      color: value == selected
-                          ? palette.violet.withValues(alpha: .55)
-                          : Colors.transparent,
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      labelOf(value),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: value == selected
-                            ? palette.violetSoft
-                            : palette.muted,
-                      ),
+                      color: palette.violet.withValues(alpha: .55),
+                      width: _edge,
                     ),
                   ),
                 ),
               ),
             ),
+          ),
+          Row(
+            children: [
+              for (final value in values)
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => onChanged(value),
+                    behavior: HitTestBehavior.opaque,
+                    child: AnimatedDefaultTextStyle(
+                      duration: motionOf(context, Motion.normal),
+                      curve: Motion.curve,
+                      // Merged onto the ambient style rather than given whole.
+                      // AnimatedDefaultTextStyle *replaces* the default for its
+                      // subtree, where a style handed to a Text merges into it —
+                      // so stating only the differences here is what keeps the
+                      // body family, the CJK fallback, and the 1.4 line height
+                      // that sets this control's height.
+                      style: DefaultTextStyle.of(context).style.copyWith(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: value == selected
+                                ? palette.violetSoft
+                                : palette.muted,
+                          ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 10 + _edge,
+                        ),
+                        child: Center(child: Text(labelOf(value))),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );
+  }
+
+  /// Centre of the selected segment, in the [-1, 1] the alignment uses.
+  ///
+  /// A segment's centre sits half a segment in from its edge, so the usable
+  /// travel is the track minus one segment — mapping the index across that is
+  /// what keeps the indicator concentric with its label at both ends.
+  Alignment get _indicatorAlignment {
+    if (values.length < 2) return Alignment.center;
+    final index = values.indexOf(selected);
+    if (index < 0) return Alignment.center;
+    return Alignment(-1 + 2 * index / (values.length - 1), 0);
   }
 }
 
@@ -585,6 +711,9 @@ class Sparkline extends StatelessWidget {
           secondColor ?? color,
           context.palette.border,
           level,
+          // A painter has no context of its own, and the rules need the ratio to
+          // land on whole device pixels.
+          MediaQuery.of(context).devicePixelRatio,
         ),
       ),
     );
@@ -598,6 +727,7 @@ class _SparklinePainter extends CustomPainter {
     this.secondColor,
     this.baselineColor,
     this.level,
+    this.dpr,
   );
 
   final List<int> values;
@@ -605,6 +735,7 @@ class _SparklinePainter extends CustomPainter {
   final Color secondColor;
   final Color baselineColor;
   final bool level;
+  final double dpr;
 
   /// Height at which the box gets ruled rather than just underlined.
   ///
@@ -626,15 +757,16 @@ class _SparklinePainter extends CustomPainter {
       // Ruled like the wide layout's flow panel, so a chart with nothing in it
       // yet reads as an empty plot rather than as a panel that failed to draw.
       for (var i = 0; i < _gridLines; i++) {
-        final y = size.height - 1 - (size.height - 1) * i / (_gridLines - 1);
+        // Inset by half a stroke at both ends so the top and bottom rules are
+        // drawn whole; centred on the edge itself, half of each falls outside
+        // the canvas and they come out fainter than the ones between them.
+        final span = size.height - 1;
+        final y = crispLine(span - span * i / (_gridLines - 1), dpr);
         canvas.drawLine(Offset(0, y), Offset(size.width, y), baseline);
       }
     } else {
-      canvas.drawLine(
-        Offset(0, size.height - 1),
-        Offset(size.width, size.height - 1),
-        baseline,
-      );
+      final y = crispLine(size.height - 1, dpr);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), baseline);
     }
 
     if (values.length < 2) return;
@@ -661,16 +793,9 @@ class _SparklinePainter extends CustomPainter {
         Offset(i * step, size.height - fraction(values[i]) * usable),
     ];
 
-    final line = Path()..moveTo(points.first.dx, points.first.dy);
-    for (var i = 1; i < points.length; i++) {
-      // Smooth with midpoint control points; a raw polyline looks jittery.
-      final previous = points[i - 1];
-      final current = points[i];
-      final mid = Offset(
-          (previous.dx + current.dx) / 2, (previous.dy + current.dy) / 2);
-      line.quadraticBezierTo(previous.dx, previous.dy, mid.dx, mid.dy);
-    }
-    line.lineTo(points.last.dx, points.last.dy);
+    // Through every sample, not past it — see [smoothThrough]. Held inside the
+    // box so a burst cannot push the curve out of the plot.
+    final line = smoothThrough(points, minY: 1, maxY: size.height - 1);
 
     final area = Path.from(line)
       ..lineTo(size.width, size.height)
@@ -714,6 +839,7 @@ class _SparklinePainter extends CustomPainter {
       oldDelegate.secondColor != secondColor ||
       oldDelegate.baselineColor != baselineColor ||
       oldDelegate.level != level ||
+      oldDelegate.dpr != dpr ||
       !listEquals(oldDelegate.values, values);
 }
 
@@ -724,4 +850,196 @@ bool listEquals(List<int> a, List<int> b) {
     if (a[i] != b[i]) return false;
   }
   return true;
+}
+
+/// A number that counts to its new value instead of cutting to it.
+///
+/// The dashboard's totals refresh once a second off the traffic stream. Drawn as
+/// plain text they tick in hard steps, which reads as a stuttering readout
+/// rather than a live one. Tweening the underlying integer and formatting each
+/// frame keeps the movement continuous.
+///
+/// [format] is applied to the interpolated value, not the target, so a total
+/// crossing a unit boundary rolls through it — `1023 KB` to `1.0 MB` — instead
+/// of jumping. Because [Tween.begin] is left null the first build lands on the
+/// value directly: a screen opens showing its number, it does not count up from
+/// zero.
+class AnimatedCount extends StatelessWidget {
+  const AnimatedCount({
+    super.key,
+    required this.value,
+    required this.format,
+    required this.style,
+    this.duration = Motion.slow,
+  });
+
+  final int value;
+
+  /// Renders the tweened value. Call sites that have nothing to show yet return
+  /// a placeholder from here and ignore the argument.
+  final String Function(int value) format;
+
+  final TextStyle style;
+
+  /// Kept under the one-second refresh cadence, so a tween finishes before the
+  /// next sample arrives rather than being retargeted mid-flight.
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: value.toDouble()),
+      duration: motionOf(context, duration),
+      curve: Motion.curve,
+      builder: (context, animated, _) => Text(
+        format(animated.round()),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      ),
+    );
+  }
+}
+
+/// Slides an item from where it used to sit to where it sits now.
+///
+/// The node list re-sorts under the user — a latency test finishes and the fast
+/// nodes rise. Rebuilt in the new order the rows simply teleport, and the one
+/// the user was reading is somewhere else with nothing to say it moved. This
+/// paints the row at its old position and animates the gap away, so the
+/// reordering is something you watch happen.
+///
+/// It works by measuring rather than by being told an index: after each layout
+/// the row records the offset its parent gave it, and a change since the last
+/// frame is the animation's distance. That keeps the list a plain [Column] —
+/// no fixed row height, no index bookkeeping at the call site.
+///
+/// The offset comes from [BoxParentData], so it is relative to the parent. A
+/// global measurement would count scrolling as movement and every flick of the
+/// list would set all the visible rows sliding.
+class ReorderSlide extends StatefulWidget {
+  const ReorderSlide({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<ReorderSlide> createState() => _ReorderSlideState();
+}
+
+class _ReorderSlideState extends State<ReorderSlide>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: Motion.normal,
+  );
+  late final Animation<double> _progress = CurvedAnimation(
+    parent: _controller,
+    curve: Motion.curve,
+  );
+
+  /// Where the parent put this row last frame. Null until the first layout,
+  /// which is what keeps a freshly built list from animating.
+  double? _previousDy;
+
+  /// How far to lift the row at the start of the current animation.
+  double _shift = 0;
+
+  /// Furthest a row will be drawn from its resting place, in logical pixels.
+  ///
+  /// Sorting a long list by latency can move a row most of the list's length. At
+  /// that distance the row crosses the whole viewport in 300ms, which reads as a
+  /// streak rather than as the row travelling — and on the way it paints over
+  /// every row between. Clamping keeps the direction and the arrival, which is
+  /// what the movement is there to say, and drops only the part of the journey
+  /// nobody can follow. About three rows.
+  static const _maxTravel = 240.0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// Where along the list the parent has put this row.
+  ///
+  /// Both answers are independent of the current scroll offset: a flex child's
+  /// offset is measured inside the flex, and a sliver child's `layoutOffset` is
+  /// measured along the sliver's own scroll extent rather than on screen. That
+  /// is the property this needs — a figure that moves only when the row's place
+  /// in the list moves.
+  ///
+  /// Render objects in between that merely pass layout through — the
+  /// RepaintBoundary a [SliverList] wraps each child in, for one — hold no
+  /// position of their own, so the walk climbs past them. An unrecognised layout
+  /// returns null and the row simply does not animate.
+  double? _positionInList() {
+    RenderObject? node = context.findRenderObject();
+    for (var hops = 0; node != null && hops < 4; hops++, node = node.parent) {
+      final data = node.parentData;
+      if (data is SliverMultiBoxAdaptorParentData) return data.layoutOffset;
+      if (data is FlexParentData) return data.offset.dy;
+    }
+    return null;
+  }
+
+  void _afterLayout(Duration _) {
+    if (!mounted) return;
+    final dy = _positionInList();
+    if (dy == null) return;
+    final previous = _previousDy;
+    _previousDy = dy;
+    if (previous == null) return;
+
+    final shift = previous - dy;
+    // Sub-pixel drift from a reflow that did not actually move the row.
+    if (shift.abs() < 0.5) return;
+    if (MediaQuery.of(context).disableAnimations) return;
+
+    setState(() => _shift = shift.clamp(-_maxTravel, _maxTravel));
+    _controller.forward(from: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Re-armed every build. A reorder rebuilds the whole list, so the frame that
+    // moves this row is always a frame it was rebuilt on.
+    WidgetsBinding.instance.addPostFrameCallback(_afterLayout);
+    return AnimatedBuilder(
+      animation: _progress,
+      // Paint-only, so the parent still lays the row out in its real slot and
+      // the offset read above stays the true one.
+      builder: (context, child) => Transform.translate(
+        offset: Offset(0, _shift * (1 - _progress.value)),
+        child: child,
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+/// Rebuilds [builder] when [state] notifies.
+///
+/// Each page wraps its own body in one of these instead of the shell rebuilding
+/// every page on every notification. AppState notifies for everything it owns —
+/// a traffic sample a second, a log line per connection — and the shell has no
+/// way to tell which page cares, so it redrew four screens nobody was looking at
+/// for every line the engine emitted.
+///
+/// Deliberately not narrowed per page: within a page the notifications that
+/// arrive are mostly ones it wants, and a selector per screen is a lot of
+/// bookkeeping for the same result. What matters is that the *other* four pages
+/// stay still.
+class PageBody extends StatelessWidget {
+  const PageBody({super.key, required this.state, required this.builder});
+
+  /// The page's state object, listened to for the lifetime of the page.
+  final Listenable state;
+
+  final WidgetBuilder builder;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: state,
+        builder: (context, _) => builder(context),
+      );
 }

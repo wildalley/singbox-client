@@ -7,7 +7,9 @@ lib/ui          Screens and widgets. Reads AppState, never touches the runtime.
 lib/state       AppState: the single ChangeNotifier the UI binds to.
 lib/data        Import, parsing, config rendering, persistence, latency probing.
 lib/models      Plain data: nodes, subscriptions, settings, runtime state.
-lib/platform    ProxyController: the boundary to native code.
+lib/platform    ProxyController: the boundary to native code. Plus the desktop
+                shell — tray, window, single instance — which sits beside it
+                rather than in lib/ui, because it runs before the first frame.
 lib/l10n        ARB sources plus generated localizations (en, zh).
 android/…/kotlin  VpnService, libbox glue, method/event channels.
 ```
@@ -34,9 +36,21 @@ abstract interface class ProxyController {
   Future<void> urlTest();
   Future<String?> coreVersion();
 
+  Future<void> shutdown();
+
   void dispose();
 }
 ```
+
+`shutdown` exists because `dispose` cannot do its job. Disposing is synchronous:
+it can signal the engine but not wait for it, and it cannot restore the desktop's
+proxy settings at all, since that is an async call out to `gsettings`. Quitting
+through `dispose` alone while connected in system-proxy mode therefore leaves the
+whole desktop pointed at a port with nothing behind it. So the quit path awaits
+`shutdown` — stop the engine, put the settings back, then exit — and `dispose`
+stays the last resort for a teardown that cannot wait. On Android it is
+deliberately a no-op beyond `dispose`: the tunnel belongs to a foreground service
+with its own lifecycle, and closing the window is not a reason to drop the VPN.
 
 `ProxyState.stage` makes permission, starting, connected, stopping,
 disconnected, and error states explicit. `createProxyController()` returns
@@ -84,15 +98,30 @@ enables:
 - stdout/stderr stream into the log page; the last 20 lines are appended to a
   start failure, so a config the engine rejects is readable.
 
-Two modes, because a tun here needs `CAP_NET_ADMIN` and there is no dialog to
-ask for it. `ProxyMode.tun` renders the config Android uses and, if the binary
-lacks the capability, reports the `setcap` command that grants it.
-`ProxyMode.systemProxy` renders no tun at all and points the desktop at the
-loopback inbound — `gsettings` under GNOME, `kwriteconfig6/5` under KDE — which
-needs no privileges. The previous settings are restored on stop, and on next
-launch if the process was killed. Because the controller spawns `sing-box` as a
-child, a file capability on that binary is enough; no privileged helper is
-involved, at the cost of a package upgrade clearing it.
+Two modes, because a tun here needs `CAP_NET_ADMIN` and Android's dialog has no
+Linux equivalent. `ProxyMode.systemProxy` is the default: it renders no tun at
+all and points the desktop at the loopback inbound — `gsettings` under GNOME,
+`kwriteconfig6/5` under KDE — which needs no privileges. The previous settings
+are restored on stop, and on next launch if the process was killed.
+
+`ProxyMode.tun` renders the config Android uses, and pays for it with one
+authorization. Before spawning the engine, `start` reads the binary's file
+capabilities with `getcap`; if they are absent it emits
+`ProxyStage.requestingPermission` and runs `pkexec setcap
+cap_net_admin,cap_net_raw+ep <binary>`, which is the same polkit dialog the
+desktop uses for mounting a disk. The kernel applies file capabilities at
+`execve`, and the controller spawns `sing-box` as its own child, so one attribute
+on one file is the whole mechanism — nothing elevates the app, and no privileged
+helper is installed. Two consequences: a package upgrade replaces the binary and
+the prompt comes back, and only a `sing-box` under a system prefix is eligible,
+since the path can arrive from `SINGBOX_BINARY` and an elevated `setcap` against
+an arbitrary path would be a capability grant on a file of the caller's choosing.
+A declined or unavailable prompt reports the `setcap` line instead.
+
+Android ignores `ProxyMode` and always renders a tun: its VpnService has nothing
+else to carry, and the settings page offers no second mode there. That check
+lives in `ConfigBuilder.build`, whose `tunOnly` parameter defaults to
+`Platform.isAndroid`.
 
 The three failures the app can diagnose itself — no binary, too old, no
 capability — travel as an `EngineProblem` marker inside `ProxyState.message`,
@@ -103,6 +132,41 @@ passes through as-is.
 system-proxy / firewall flow and whatever elevation a Wintun adapter needs. Keep
 the UI usable when the runtime is unavailable and report actionable permission
 errors.
+
+## Desktop shell
+
+`lib/platform/desktop_shell.dart` owns the tray icon, what the window's close
+button means, and the quit path. It is created in `main` before `runApp` and
+listens to `AppState` directly, so nothing in `lib/ui` knows a tray exists.
+
+The ordering inside it is load-bearing, and the reason is a bug this code now
+guards against. `tray_manager`'s Linux plugin implements four methods —
+`destroy`, `setIcon`, `setTitle`, `setContextMenu` — and lets `setToolTip` and
+`popUpContextMenu` fall through to `not_implemented`, where they throw
+`MissingPluginException`. A `setToolTip` placed before `setContextMenu` therefore
+threw, the menu was never set, and the close button hid the only window behind an
+icon that could open nothing. Hence: the menu goes on first, nothing optional runs
+before it, and `_trayPainted` records that it succeeded. Hiding the window is
+gated on that flag, so a tray that failed to install leaves the close button
+meaning quit rather than trapping the process.
+
+Pointer events are absent for the same reason — an AppIndicator hands the menu to
+the panel, which opens it itself, so the application is never told about a click.
+On Linux the menu is the only entry point, which is why "show window" is its first
+item rather than something a left click would have covered. The tray is also
+redrawn only when the status it displays changes: `AppState` notifies once a
+second while traffic flows, and rebuilding an open appindicator menu closes it
+under the user's cursor.
+
+Because the close button hides, a second launch is not an error to refuse — it is
+the user asking for the window, most likely because the tray icon is unreachable.
+`SingleInstance` binds a Unix socket in the app's own 0700 data directory; a
+second process connects, says so, and exits, and the first raises its window. A
+socket rather than a lock file because it answers both questions at once: a stale
+lock file after a crash is indistinguishable from a live instance, while a stale
+socket refuses the connection. If neither connecting nor binding works the app
+runs unguarded, since the failure that matters is a user with no window, not a
+user with two.
 
 ## Configuration flow
 
@@ -117,6 +181,48 @@ errors.
 
 Node ids are a hash of protocol, host, port, and secret, so re-importing a
 subscription preserves latency readings and favourites.
+
+### Route rules
+
+The rendered `route.rules` list is ordered, and sing-box takes the first match, so
+position is behaviour rather than presentation. From the top: `sniff`, so domain
+rules can match TLS/HTTP hostnames; the clash-mode overrides and the LAN bypass;
+then the user's own rules; then the bundled rule-sets.
+
+The user's rules sit above the bundled lists because a rule someone typed for one
+domain is a more specific answer than a list of millions, and below the overrides
+because those are not opinions about a destination — clash-mode is a global switch
+the user just flipped, and the LAN bypass keeps local traffic off the tunnel.
+They render one entry each, in the user's order, rather than merging rules that
+share a matcher and target: merging would be smaller but would reorder them, and
+first-match-wins means the order on screen has to be the order in the config.
+
+`CustomRule.problem` validates before rendering, and the invalid are dropped in
+`ConfigBuilder` rather than at the call site. That filter is load-bearing. Ports
+are `uint16` in sing-box's schema while every other matcher is a string list, so a
+port rendered as `["443"]` fails at decode — `cannot unmarshal string into Go
+value of type uint16` — and the whole tunnel refuses to start over one quoted
+number, with nothing in the error naming the rule responsible. Editing a rule
+reloads a running tunnel, which costs the live connections; that is the honest
+price of changing where traffic goes, and it is the only way a rule applies now
+rather than at the next connect.
+
+### Notifications and the log
+
+`AppState` is one `ChangeNotifier` for the whole app, which makes how often it
+fires a design constraint. Two things bound it. Log lines arrive in bursts — one
+per connection at debug level — so notification is coalesced through a
+zero-duration `Timer`: a macrotask, deliberately, because stream events are
+delivered as microtasks and a microtask scheduled from inside a listener
+interleaves with the deliveries still queued behind it, turning 300 lines into 301
+notifications. The buffer itself is a `RingBuffer`, a fixed-capacity `List` view,
+so an append is O(1) and reads hand out the buffer rather than a copy — the naive
+shape paid O(n) twice per line, exactly when lines arrived fastest.
+
+Above that, `MaterialApp` subscribes to a `ValueNotifier` carrying only the theme
+mode and locale, and the shell's chrome to one carrying only `isConnected`, so a
+traffic sample no longer rebuilds `Theme`, `Localizations`, and every page beneath
+them. Each page subscribes for itself through `PageBody`.
 
 Outbound tags are generated in exactly one place — `ConfigBuilder.outboundTag` —
 because runtime node switching (`selectOutbound`) has to name the same tag the
@@ -144,7 +250,10 @@ a caller cannot forget it and quietly render an open listener.
 
 ## Remaining work
 
-- Desktop process supervision and privileged TUN / system-proxy operations.
+- Windows runtime: supervised process, system proxy, and Wintun elevation.
 - Per-app proxy UI (the setting and config plumbing exist; there is no picker).
 - Release signing: `android/app/build.gradle.kts` still signs with debug keys.
 - Additional ABIs — `scripts/build-libbox.sh` builds arm64 only by default.
+- A setting for the exit-IP lookup, which currently always runs on connect.
+- Desktop paths verified against fakes but not a live session: the tray on a
+  panel, the polkit prompt, the hide/show cycle.

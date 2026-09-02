@@ -10,10 +10,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:singbox_client/models/app_settings.dart';
 
 void main() {
-  test('the default is tun', () {
-    // Android has no other mode, and it renders through the same settings
-    // object; the default is what keeps that build untouched.
-    expect(const AppSettings().proxyMode, ProxyMode.tun);
+  test('the default is system proxy', () {
+    // The mode that needs no privileges, so a fresh desktop install connects
+    // without a polkit prompt. Android renders a tun whatever this says — see
+    // the ConfigBuilder tests — so the default is the desktop's answer only.
+    expect(const AppSettings().proxyMode, ProxyMode.systemProxy);
   });
 
   test('copyWith carries the mode when it is not the one being changed', () {
@@ -32,13 +33,14 @@ void main() {
     }
   });
 
-  test('a missing or unknown stored value reads as tun', () {
+  test('a missing or unknown stored value reads as system proxy', () {
     // Settings written before the mode existed have no key, and a value from a
-    // newer build is not a reason to refuse to start.
-    expect(AppSettings.fromJson(const {}).proxyMode, ProxyMode.tun);
+    // newer build is not a reason to refuse to start. Either way the fallback is
+    // the mode that cannot fail on privileges.
+    expect(AppSettings.fromJson(const {}).proxyMode, ProxyMode.systemProxy);
     expect(
       AppSettings.fromJson(const {'proxy_mode': 'wireguard'}).proxyMode,
-      ProxyMode.tun,
+      ProxyMode.systemProxy,
     );
   });
 

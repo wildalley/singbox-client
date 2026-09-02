@@ -14,11 +14,12 @@
 ///  * everything else — group membership, selection, URL tests, counters — goes
 ///    over the Clash API the rendered config already enables.
 ///
-/// Privileges: a `tun` inbound needs `CAP_NET_ADMIN`, which Android hands over
-/// after its permission dialog and Linux does not. `requestPermission` cannot
-/// ask for it, so it returns true and a tun start that fails on permissions is
-/// reported as an engine error carrying the `setcap` line that fixes it.
-/// System-proxy mode needs nothing and is what a stock install can run.
+/// Privileges: a `tun` inbound needs `CAP_NET_ADMIN`, which Android is handed
+/// after its permission dialog and Linux is not. The desktop equivalent is a
+/// file capability on the engine binary, and a tun start asks for it the way the
+/// rest of the desktop asks for root — a polkit prompt, put up by `pkexec`, once
+/// per binary. See `linux_privileges.dart`. System-proxy mode needs nothing at
+/// all, which is why it is the mode a fresh install starts in.
 library;
 
 import 'dart:async';
@@ -29,6 +30,7 @@ import '../data/config_builder.dart';
 import '../models/proxy_state.dart';
 import 'app_paths.dart';
 import 'clash_api.dart';
+import 'linux_privileges.dart';
 import 'linux_system_proxy.dart';
 import 'proxy_controller.dart';
 
@@ -44,17 +46,21 @@ class LinuxProxyController implements ProxyController {
   LinuxProxyController({
     this.binaryOverride,
     LinuxSystemProxy? systemProxy,
+    LinuxPrivileges? privileges,
     ClashApiClient Function({required int port, required String secret})?
         clientFactory,
     Duration readyTimeout = const Duration(seconds: 10),
     Duration groupPollInterval = const Duration(seconds: 5),
   })  : _systemProxy = systemProxy,
+        _privileges = privileges ?? LinuxPrivileges(),
         _clientFactory = clientFactory ?? _defaultClient,
         _readyTimeout = readyTimeout,
         _groupPollInterval = groupPollInterval;
 
   /// Skips discovery. Set by tests and by `SINGBOX_BINARY`.
   final String? binaryOverride;
+
+  final LinuxPrivileges _privileges;
 
   final ClashApiClient Function({required int port, required String secret})
       _clientFactory;
@@ -72,8 +78,8 @@ class LinuxProxyController implements ProxyController {
 
   Process? _process;
 
-  /// The binary the current or last start used, so a permissions failure can
-  /// quote the exact `setcap` line that fixes it.
+  /// The binary the current or last start used: what the capability is asked for
+  /// on, and what a permissions failure quotes in the `setcap` line.
   String? _binary;
 
   ClashApiClient? _client;
@@ -106,9 +112,11 @@ class LinuxProxyController implements ProxyController {
   @override
   ProxyState get currentState => _state;
 
-  /// Nothing to ask for: Linux grants no capability through a dialog. Reported
-  /// as granted so the connect path proceeds, and a missing capability surfaces
-  /// as the engine error it actually is.
+  /// Nothing to ask for here. What a Linux tun needs is a capability on the
+  /// engine binary, not a per-connection grant, and whether this start wants one
+  /// is a fact about the config — so the asking happens in [start], where the
+  /// rendered config says whether there is a tun at all. Reported as granted so
+  /// the connect path proceeds to it.
   @override
   Future<bool> requestPermission() async => true;
 
@@ -132,6 +140,8 @@ class LinuxProxyController implements ProxyController {
     }
 
     final settings = _ConfigFacts.parse(configJson);
+    if (settings.hasTun && !await _authorizeTun(binary)) return;
+
     final dataDir = await appDataDirectory();
     if (dataDir == null) {
       _emit(const ProxyState(
@@ -294,6 +304,27 @@ class LinuxProxyController implements ProxyController {
   }
 
   @override
+  Future<void> shutdown() async {
+    // Order matters. Stopping first lets sing-box close its inbounds and flush
+    // its cache on SIGTERM, and the _teardown inside stop() is what puts the
+    // desktop's proxy settings back — the step dispose cannot do at all.
+    if (_process != null) {
+      try {
+        await stop();
+      } on Object {
+        // Quitting must not hang on a stubborn engine. dispose below still
+        // sends SIGTERM, and restoreSystemProxy at the next start is the
+        // backstop for the settings.
+      }
+    } else {
+      // No engine of ours running, but an earlier unclean exit may still have
+      // left the desktop pointed at that port. Cheap to be sure.
+      await _teardown();
+    }
+    dispose();
+  }
+
+  @override
   void dispose() {
     _disposed = true;
     _groupPoll?.cancel();
@@ -317,6 +348,36 @@ class LinuxProxyController implements ProxyController {
     await _proxyFor(dataDir).restore();
   }
 
+  // --- privileges -----------------------------------------------------------
+
+  /// Makes sure [binary] can create a tun, asking the user once if it cannot.
+  ///
+  /// Reports the failure itself and returns false, so a caller can `return` on
+  /// it. Three ways this ends without a prompt: the capability is already there
+  /// (the common case, since it survives on the file), `getcap` cannot say — in
+  /// which case the engine is left to try and its own error stands — or there is
+  /// no way to ask, which reads the same as a refusal because the outcome is.
+  Future<bool> _authorizeTun(String binary) async {
+    final present = await _privileges.hasTunCapabilities(binary);
+    // Null is "cannot tell": see LinuxPrivileges.hasTunCapabilities.
+    if (present != false) return true;
+
+    _emit(const ProxyState(stage: ProxyStage.requestingPermission));
+    _note('tun mode: asking for $tunCapabilities on $binary');
+    final outcome = await _privileges.grantTunCapabilities(binary);
+    if (outcome == TunAuthorization.granted) {
+      _note('tun mode: $tunCapabilities granted');
+      _emit(const ProxyState(stage: ProxyStage.starting));
+      return true;
+    }
+    // One message for every way it did not happen — dismissed, failed, or
+    // nothing to ask with — because the fix the user is offered is the same:
+    // authorize it, grant it by hand, or use the mode that needs neither.
+    _note('tun mode: not authorized (${outcome.name})');
+    _fail(EngineProblem.unprivileged, binary);
+    return false;
+  }
+
   // --- process plumbing -----------------------------------------------------
 
   void _pipe(Stream<List<int>> output) {
@@ -330,6 +391,13 @@ class LinuxProxyController implements ProxyController {
     if (line.trim().isEmpty) return;
     _recentOutput.add(line);
     if (_recentOutput.length > _outputTail) _recentOutput.removeAt(0);
+    _note(line);
+  }
+
+  /// A line from the controller rather than from the engine. Reaches the log page
+  /// but stays out of [_recentOutput], which exists to quote the engine's own
+  /// last words back in a failure message.
+  void _note(String line) {
     if (!_logController.isClosed) {
       _logController.add(ProxyLogEntry(message: line, at: DateTime.now()));
     }

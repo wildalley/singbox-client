@@ -108,6 +108,21 @@ class ProxyTraffic {
   final int connectionsOut;
   final int memory;
 
+  /// Open connections, as the one figure the UI shows.
+  ///
+  /// The two runtimes fill different slots. libbox reports both directions
+  /// separately, while the Clash API has only an undirected list and puts its
+  /// length in [connectionsIn], leaving [connectionsOut] at zero — so reading
+  /// either field directly is zero on one platform or the other. Whichever
+  /// carries the reading is the reading.
+  ///
+  /// The larger of the two rather than their sum: on libbox an inbound
+  /// connection dials a matching outbound, so adding them reports roughly twice
+  /// the connections there while still being correct on the desktop. Taking the
+  /// maximum is right whether one slot is filled or both.
+  int get connections =>
+      connectionsIn > connectionsOut ? connectionsIn : connectionsOut;
+
   static const zero = ProxyTraffic();
 
   static ProxyTraffic fromMap(Map<Object?, Object?> map) => ProxyTraffic(

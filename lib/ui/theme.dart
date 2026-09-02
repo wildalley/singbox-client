@@ -265,6 +265,17 @@ class Motion {
   static const slower = Duration(milliseconds: 800);
 }
 
+/// [duration], or zero when the platform asks for reduced motion.
+///
+/// Anything that moves on its own — a value tween, a reorder slide, a page
+/// transition — reads its duration through here rather than from [Motion]
+/// directly, so "reduce motion" is honoured in one place instead of per widget.
+///
+/// Implicit animations given a zero duration still land on the new value; they
+/// just do it in one frame. So this removes the movement, not the update.
+Duration motionOf(BuildContext context, Duration duration) =>
+    MediaQuery.of(context).disableAnimations ? Duration.zero : duration;
+
 /// Outer glow for emphasised elements: the connection dial, an active node, a
 /// focused panel edge.
 ///

@@ -156,7 +156,7 @@ Version: $VERSION-$BUILD
 Section: net
 Priority: optional
 Architecture: amd64
-Depends: libc6, libstdc++6, libgtk-3-0, libglib2.0-0
+Depends: libc6, libstdc++6, libgtk-3-0, libglib2.0-0, libayatana-appindicator3-1, libdbusmenu-glib4
 Recommends: sing-box (>= 1.12)
 Installed-Size: $installed_size
 Maintainer: WildAlley <noreply@wildalley.invalid>
@@ -213,7 +213,12 @@ if wants arch; then
 
     # depends: what the bundle actually links against, mapped to packages.
     # gtk3 pulls in the pango/cairo/gdk-pixbuf/atk/harfbuzz/glib/epoxy stack,
-    # so listing it covers every NEEDED entry but the three below.
+    # so listing it covers every NEEDED entry but the five below.
+    # The appindicator pair comes with the tray icon: tray_manager links
+    # libayatana-appindicator3, which brings libdbusmenu-glib with it. Both are
+    # hard depends rather than optional — without them the binary will not load,
+    # and the tray is not a feature the app can quietly do without on a desktop
+    # where closing the window is supposed to leave it running.
     # sing-box is different: nothing links it, the app runs it. A hard depend
     # rather than an optdepend because without it the app cannot proxy at all,
     # which is the only thing it is for. Arch ships 1.13; the config needs 1.12.
@@ -228,7 +233,8 @@ pkgdesc='sing-box client'
 arch=('x86_64')
 url='$URL'
 license=('GPL-3.0-or-later')
-depends=('gtk3' 'gcc-libs' 'glibc' 'zlib' 'sing-box>=1.12')
+depends=('gtk3' 'gcc-libs' 'glibc' 'zlib' 'libayatana-appindicator'
+         'libdbusmenu-glib' 'sing-box>=1.12')
 # !strip: the Flutter engine and libapp.so ship as they were built.
 options=('!strip' '!debug')
 

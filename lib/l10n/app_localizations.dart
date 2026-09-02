@@ -343,6 +343,60 @@ abstract class L10n {
   /// **'No node selected'**
   String get homeNoNodeSelected;
 
+  /// No description provided for @trayShowWindow.
+  ///
+  /// In en, this message translates to:
+  /// **'Show window'**
+  String get trayShowWindow;
+
+  /// No description provided for @trayHideWindow.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide window'**
+  String get trayHideWindow;
+
+  /// No description provided for @trayQuit.
+  ///
+  /// In en, this message translates to:
+  /// **'Quit'**
+  String get trayQuit;
+
+  /// No description provided for @trayTooltipConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get trayTooltipConnected;
+
+  /// No description provided for @trayTooltipDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get trayTooltipDisconnected;
+
+  /// No description provided for @settingsCloseToTray.
+  ///
+  /// In en, this message translates to:
+  /// **'Close to tray'**
+  String get settingsCloseToTray;
+
+  /// No description provided for @settingsCloseToTrayBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Closing the window leaves the tunnel running. Turn this off to quit instead.'**
+  String get settingsCloseToTrayBody;
+
+  /// No description provided for @homeExitIp.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit IP'**
+  String get homeExitIp;
+
+  /// No description provided for @homeExitUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get homeExitUnknown;
+
   /// No description provided for @homeChangeNode.
   ///
   /// In en, this message translates to:
@@ -612,6 +666,180 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Nothing is proxied. The tunnel stays up but traffic goes out directly.'**
   String get rulesModeDirectBody;
+
+  /// No description provided for @rulesMatchOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Match on'**
+  String get rulesMatchOn;
+
+  /// No description provided for @rulesSendTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Send to'**
+  String get rulesSendTo;
+
+  /// No description provided for @rulesCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Your rules'**
+  String get rulesCustom;
+
+  /// No description provided for @rulesCustomNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Matched in order, above the bundled lists. Changes apply immediately.'**
+  String get rulesCustomNote;
+
+  /// No description provided for @rulesCustomEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No rules of your own yet'**
+  String get rulesCustomEmpty;
+
+  /// No description provided for @rulesCustomEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Add one to send a single domain, address, or port a different way.'**
+  String get rulesCustomEmptyBody;
+
+  /// No description provided for @rulesCustomAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add rule'**
+  String get rulesCustomAdd;
+
+  /// No description provided for @rulesCustomEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit rule'**
+  String get rulesCustomEdit;
+
+  /// No description provided for @rulesMatcherDomain.
+  ///
+  /// In en, this message translates to:
+  /// **'Domain'**
+  String get rulesMatcherDomain;
+
+  /// No description provided for @rulesMatcherDomainSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **'Domain and subdomains'**
+  String get rulesMatcherDomainSuffix;
+
+  /// No description provided for @rulesMatcherDomainKeyword.
+  ///
+  /// In en, this message translates to:
+  /// **'Domain contains'**
+  String get rulesMatcherDomainKeyword;
+
+  /// No description provided for @rulesMatcherIpCidr.
+  ///
+  /// In en, this message translates to:
+  /// **'IP or CIDR'**
+  String get rulesMatcherIpCidr;
+
+  /// No description provided for @rulesMatcherPort.
+  ///
+  /// In en, this message translates to:
+  /// **'Port'**
+  String get rulesMatcherPort;
+
+  /// No description provided for @rulesMatcherProcessName.
+  ///
+  /// In en, this message translates to:
+  /// **'Process name'**
+  String get rulesMatcherProcessName;
+
+  /// No description provided for @rulesTargetProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy'**
+  String get rulesTargetProxy;
+
+  /// No description provided for @rulesTargetDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct'**
+  String get rulesTargetDirect;
+
+  /// No description provided for @rulesTargetBlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Block'**
+  String get rulesTargetBlock;
+
+  /// No description provided for @rulesValueHintDomain.
+  ///
+  /// In en, this message translates to:
+  /// **'example.com'**
+  String get rulesValueHintDomain;
+
+  /// No description provided for @rulesValueHintKeyword.
+  ///
+  /// In en, this message translates to:
+  /// **'tracker'**
+  String get rulesValueHintKeyword;
+
+  /// No description provided for @rulesValueHintIpCidr.
+  ///
+  /// In en, this message translates to:
+  /// **'10.0.0.0/8'**
+  String get rulesValueHintIpCidr;
+
+  /// No description provided for @rulesValueHintPort.
+  ///
+  /// In en, this message translates to:
+  /// **'443'**
+  String get rulesValueHintPort;
+
+  /// No description provided for @rulesValueHintProcess.
+  ///
+  /// In en, this message translates to:
+  /// **'curl'**
+  String get rulesValueHintProcess;
+
+  /// No description provided for @rulesProblemEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a value'**
+  String get rulesProblemEmpty;
+
+  /// No description provided for @rulesProblemPort.
+  ///
+  /// In en, this message translates to:
+  /// **'Must be a port from 1 to 65535'**
+  String get rulesProblemPort;
+
+  /// No description provided for @rulesProblemCidr.
+  ///
+  /// In en, this message translates to:
+  /// **'Must be an IP address or CIDR block'**
+  String get rulesProblemCidr;
+
+  /// No description provided for @rulesProblemUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a hostname, not a URL'**
+  String get rulesProblemUrl;
+
+  /// No description provided for @rulesRuleDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get rulesRuleDisabled;
+
+  /// No description provided for @rulesMoveUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get rulesMoveUp;
+
+  /// No description provided for @rulesMoveDown.
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get rulesMoveDown;
 
   /// No description provided for @rulesActive.
   ///
@@ -1246,7 +1474,7 @@ abstract class L10n {
   /// No description provided for @noticeTunUnprivileged.
   ///
   /// In en, this message translates to:
-  /// **'TUN needs CAP_NET_ADMIN. Grant it with: sudo setcap cap_net_admin,cap_net_raw+ep {binary} — or switch to system proxy mode.'**
+  /// **'TUN was not authorized. Connect again to get the prompt, grant it with: sudo setcap cap_net_admin,cap_net_raw+ep {binary} — or switch to system proxy mode.'**
   String noticeTunUnprivileged(String binary);
 
   /// No description provided for @platformUnsupported.

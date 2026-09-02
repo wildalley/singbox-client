@@ -5,6 +5,7 @@
 library;
 
 import '../l10n/app_localizations.dart';
+import '../models/custom_rule.dart';
 import '../models/subscription.dart';
 import '../state/app_state.dart';
 
@@ -58,4 +59,45 @@ String subscriptionFailureText(
         l10n.noticeImportHttpStatus(status ?? 0),
       SubscriptionFailure.unusableContent => l10n.noticeImportUnusable,
       SubscriptionFailure.badSource => l10n.noticeImportBadSource,
+    };
+
+/// What is wrong with a rule, in the user's language.
+///
+/// [CustomRule.problem] reports a kind rather than a sentence, for the same
+/// reason the state layer does: the model has no business holding English.
+String ruleProblemText(L10n l10n, RuleProblem problem) => switch (problem) {
+      RuleProblem.empty => l10n.rulesProblemEmpty,
+      RuleProblem.port => l10n.rulesProblemPort,
+      RuleProblem.cidr => l10n.rulesProblemCidr,
+      RuleProblem.url => l10n.rulesProblemUrl,
+    };
+
+/// The name of a matcher, as the picker shows it.
+String ruleMatcherText(L10n l10n, RuleMatcher matcher) => switch (matcher) {
+      RuleMatcher.domain => l10n.rulesMatcherDomain,
+      RuleMatcher.domainSuffix => l10n.rulesMatcherDomainSuffix,
+      RuleMatcher.domainKeyword => l10n.rulesMatcherDomainKeyword,
+      RuleMatcher.ipCidr => l10n.rulesMatcherIpCidr,
+      RuleMatcher.port => l10n.rulesMatcherPort,
+      RuleMatcher.processName => l10n.rulesMatcherProcessName,
+    };
+
+/// An example of what [matcher] expects, shown as the field's hint.
+///
+/// Worth having per matcher: "example.com" in a port field is the kind of thing
+/// that makes a user type `example.com:443` and get a rule that never matches.
+String ruleValueHint(L10n l10n, RuleMatcher matcher) => switch (matcher) {
+      RuleMatcher.domain => l10n.rulesValueHintDomain,
+      RuleMatcher.domainSuffix => l10n.rulesValueHintDomain,
+      RuleMatcher.domainKeyword => l10n.rulesValueHintKeyword,
+      RuleMatcher.ipCidr => l10n.rulesValueHintIpCidr,
+      RuleMatcher.port => l10n.rulesValueHintPort,
+      RuleMatcher.processName => l10n.rulesValueHintProcess,
+    };
+
+/// The name of a rule's destination.
+String ruleTargetText(L10n l10n, RuleTarget target) => switch (target) {
+      RuleTarget.proxy => l10n.rulesTargetProxy,
+      RuleTarget.direct => l10n.rulesTargetDirect,
+      RuleTarget.block => l10n.rulesTargetBlock,
     };

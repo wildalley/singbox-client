@@ -51,6 +51,19 @@ abstract interface class ProxyController {
   /// Version of the bundled proxy core, or null when it cannot be determined.
   Future<String?> coreVersion();
 
+  /// Releases everything, and waits for the parts that must not be cut short.
+  ///
+  /// [dispose] cannot do this job: it is synchronous, so it can fire a signal
+  /// but not wait for the engine to act on it, and it cannot put the desktop's
+  /// proxy settings back at all — that is an async call to `gsettings`. Left to
+  /// dispose alone, quitting while connected in system-proxy mode leaves the
+  /// desktop pointed at a port with nothing behind it and every application on
+  /// it offline.
+  ///
+  /// Call this before the process exits, and await it. [dispose] stays as the
+  /// last resort for a teardown that cannot wait.
+  Future<void> shutdown();
+
   void dispose();
 }
 
@@ -209,6 +222,15 @@ class AndroidProxyController implements ProxyController {
   }
 
   @override
+  Future<void> shutdown() async {
+    // Nothing to unwind that outlives the process: the tunnel belongs to a
+    // foreground service with its own lifecycle, and Android has no system
+    // proxy setting of ours to put back. Closing the app is not a reason to
+    // drop the VPN, so the service is deliberately left alone.
+    dispose();
+  }
+
+  @override
   void dispose() {
     _stateController.close();
     _trafficController.close();
@@ -269,6 +291,9 @@ class UnsupportedProxyController implements ProxyController {
 
   @override
   Future<String?> coreVersion() async => null;
+
+  @override
+  Future<void> shutdown() async => dispose();
 
   @override
   void dispose() => _stateController.close();

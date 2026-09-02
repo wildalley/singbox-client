@@ -389,6 +389,10 @@ void main() {
       // The API counts connections without a direction; filling both slots
       // would read as twice the connections.
       expect(last.connectionsOut, 0);
+      // And the figure the card actually reads. Asserting the two slots above
+      // is not enough on its own: both held the right values while the desktop
+      // dashboard showed a flat zero, because it was reading the empty one.
+      expect(last.connections, 2);
 
       await subscription.cancel();
     });

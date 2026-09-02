@@ -32,14 +32,30 @@ in-process library can grant itself.
 
 - Supervises an installed `sing-box` (≥ 1.12), driven over its Clash API: node
   switching, per-node URL tests, traffic, connection count, and memory
-- Two modes. TUN captures everything but needs `CAP_NET_ADMIN`; system-proxy mode
-  needs no privileges at all and points GNOME or KDE at the loopback inbound
-- Restores the desktop's previous proxy settings on stop, and on next launch
-  after an unclean exit
+- Two modes. System proxy is the default and needs no privileges at all, pointing
+  GNOME or KDE at the loopback inbound; TUN captures everything and asks for
+  `CAP_NET_ADMIN` through a polkit prompt, once per binary
+- Restores the desktop's previous proxy settings on stop, on quit, and on next
+  launch after an unclean exit
 - Engine stdout/stderr streams into the log page, so a failed start is readable
   rather than silent
 - Missing binary, too-old binary, and a tun the kernel refused are each reported
   with the fix, in the user's language
+
+**Desktop shell**
+
+Linux is where this matters, since it is the desktop with a runtime behind it.
+Windows gets the same shell over a runtime that cannot start a tunnel yet.
+
+- Tray icon reflecting connection state, with show/hide, connect/disconnect, and
+  a checked proxy-mode group in its menu
+- Closing the window hides it and leaves the tunnel running; it falls back to
+  quitting when no tray icon could be installed, so the window is never hidden
+  behind an icon that cannot bring it back
+- Quitting stops the engine and restores the desktop proxy settings before the
+  process exits, rather than leaving the machine pointed at a dead port
+- A second launch raises the first instance's window instead of starting a
+  process whose engine cannot bind its ports
 
 **Import**
 
@@ -61,8 +77,24 @@ measured latency and favourites.
 - Latency measured through the tunnel when it is up — the engine URL-tests each
   proxy — and by TCP handshake with bounded concurrency when it is not
 - Nodes grouped by source, foldable, searchable, and sortable by latency
+- Exit-IP readout, fetched through the tunnel, which is the one check that says
+  whether traffic is really leaving by the node rather than the user's own line
 - Subscriptions refresh themselves on connect when they have gone stale
 - Generated-config inspector for diagnostics
+
+**Routing rules**
+
+- Bundled rule-sets answer the general case: China direct, ads blocked,
+  everything else proxied
+- Your own rules cover the specific one — one matcher, one destination each.
+  Match on domain, domain-and-subdomains, domain substring, IP/CIDR, port, or
+  process name; send to proxy, direct, or block
+- Matched in the order shown, above the bundled lists, so a rule you typed for
+  one domain beats a list of millions
+- Reorderable, individually switchable off without being deleted, and validated
+  before they reach the engine — a mistyped port is reported in the UI instead of
+  becoming a tunnel that will not start
+- Editing one reloads a running tunnel, so a rule applies immediately
 
 ## Requirements
 
@@ -73,6 +105,15 @@ Dart 3.3+
 
 For Android builds: JDK 17, Android SDK with NDK, and Go 1.24+ to build
 `libbox.aar`.
+
+For Linux builds, the tray needs appindicator headers on top of Flutter's usual
+desktop toolchain — `tray_manager`'s CMake stops with a fatal error when it
+cannot find them, so the bundle does not build without it:
+
+```bash
+sudo apt-get install libayatana-appindicator3-dev   # Debian, Ubuntu
+sudo pacman -S --needed libayatana-appindicator     # Arch
+```
 
 ## Build
 
@@ -115,7 +156,7 @@ scripts/package.sh deb apk    # or a named subset
 
 | Artifact | Needs |
 | --- | --- |
-| `singbox-client_<version>-<build>_amd64.deb` | nothing past the Linux toolchain — `dpkg-deb` when present, otherwise `ar` + `tar` |
+| `singbox-client_<version>-<build>_amd64.deb` | nothing past the Linux toolchain above — `dpkg-deb` when present, otherwise `ar` + `tar` |
 | `singbox-client-<version>-<build>-x86_64.pkg.tar.zst` | `makepkg` and `fakeroot`, so an Arch host |
 | `singbox-client-<version>-<build>-arm64.apk` | a JDK, an Android SDK, and `android/app/libs/libbox.aar` |
 
@@ -126,7 +167,9 @@ build. Icons are rasterized from `docs/design/icon/ic_launcher.svg` with
 Both Linux packages install the same layout: the bundle under
 `/usr/lib/singbox-client/`, reached through a `/usr/bin/singbox-client` symlink,
 plus a desktop entry and hicolor icons. Neither needs root to build — the deb
-falls back to `ar`+`tar`, and `makepkg` refuses to run as root anyway.
+falls back to `ar`+`tar`, and `makepkg` refuses to run as root anyway. Both
+declare the appindicator runtime libraries as hard dependencies, because the
+binary links them and will not load without them.
 
 ## Continuous integration
 
@@ -142,7 +185,9 @@ falls back to `ar`+`tar`, and `makepkg` refuses to run as root anyway.
 `ubuntu-latest` supplies the JDK 17, Android SDK, and NDK that
 `scripts/build-libbox.sh` needs and a typical desktop checkout does not.
 `libbox.aar` is cached on `SINGBOX_TAG`, so only the first run pays the ~15
-minutes to build it.
+minutes to build it. Both Linux jobs install the appindicator package their
+distribution names, since the tray is a build dependency rather than a runtime
+one.
 
 The Arch package gets its own job because `makepkg` — which is what writes
 `.PKGINFO`, `.MTREE` and `.BUILDINFO` — exists only on Arch, and because a deb
@@ -163,10 +208,11 @@ flutter analyze
 flutter test
 ```
 
-309 tests pass: share-link parsing, config rendering, import format detection,
-the Linux runtime's Clash API client and desktop proxy backends against fakes,
-UI interaction against a fake controller, and localization/theme coverage
-including palette contrast ratios.
+459 tests pass: share-link parsing, config rendering, custom-rule validation and
+placement, import format detection, the Linux runtime's Clash API client, polkit
+capability grant, and desktop proxy backends against fakes, the shutdown path,
+the single-instance socket, tray menu construction, UI interaction against a fake
+controller, and localization/theme coverage including palette contrast ratios.
 
 Visual regression snapshots are gated behind an environment variable, because
 they render on the host's font stack and are only meaningful where they were
@@ -180,6 +226,12 @@ End-to-end tunnel behaviour — a real node carrying real traffic — has not be
 verified in an automated way and needs a real subscription to exercise. The same
 holds for anything that depends on what the engine reports at runtime, including
 the URL-test delays behind latency sorting.
+
+Three desktop paths are covered by unit tests but have not been exercised on a
+live desktop session: the tray icon appearing on a panel and its menu opening,
+the polkit prompt a first TUN start puts up, and the window hide/show cycle.
+Their logic is tested against fakes — menu contents, quit ordering, `pkexec`
+argv, socket handoff — which is not the same as having watched them happen.
 
 ## Localization
 
@@ -211,16 +263,32 @@ schema. `SINGBOX_BINARY` overrides the lookup. Which mode to run:
 | System proxy | none | applications that honour the desktop proxy settings; TCP only |
 | TUN | `CAP_NET_ADMIN` | everything, UDP included |
 
-TUN is the default. The app cannot ask for the capability — there is no dialog
-for it on Linux — so grant it once to the binary the app will run:
+**System proxy is the default**, so a fresh install connects without asking for
+anything. Switching to TUN costs one authorization: before starting the engine the
+app checks the binary's file capabilities and, if they are missing, asks for them
+through polkit — the same password dialog the desktop uses for mounting a disk —
+by running
 
 ```bash
-sudo setcap cap_net_admin,cap_net_raw+ep "$(command -v sing-box)"
+pkexec setcap cap_net_admin,cap_net_raw+ep /usr/bin/sing-box
 ```
 
-File capabilities are lost when the `sing-box` package is upgraded, so that has
-to be repeated. Without it, TUN mode reports the failure and the exact command;
-system-proxy mode works untouched. See
+The capability lives on the binary, and the app spawns `sing-box` as its own
+child, so this is asked once rather than per connection: no privileged helper is
+installed and nothing elevates the app itself. A `sing-box` package upgrade
+replaces the file and the prompt comes back on the next TUN start.
+
+Only a `sing-box` under a system prefix (`/usr`, `/opt`, `/bin`, `/sbin`) is
+elevated this way, because the path can come from `SINGBOX_BINARY` and running
+`setcap` as root against an arbitrary path would grant capabilities to a file of
+the caller's choosing. A binary elsewhere still runs — grant it by hand:
+
+```bash
+sudo setcap cap_net_admin,cap_net_raw+ep /path/to/sing-box
+```
+
+If the prompt is dismissed, or the system has no polkit agent, TUN mode reports
+that with the manual command; system-proxy mode works untouched. See
 [`docs/architecture.md`](docs/architecture.md) for how the two runtimes divide up
 the same `ProxyController` interface.
 
@@ -237,12 +305,25 @@ the same `ProxyController` interface.
 - The Linux runtime is covered by unit tests against fakes, not by a live tunnel:
   no automated test starts a real `sing-box`, creates a tun, or writes real
   desktop proxy settings.
-- Linux has no privileged helper. TUN depends on file capabilities on the
-  `sing-box` binary, which a package upgrade clears; a systemd or polkit helper
-  would survive that.
+- Linux has no privileged helper. TUN depends on a file capability on the
+  `sing-box` binary, granted through polkit and cleared by a package upgrade,
+  which brings the prompt back. A systemd or polkit-installed helper would
+  survive that.
 - Only GNOME and KDE system-proxy backends are implemented. Elsewhere the mode
   starts the engine and says in the log page that it could not set the
   desktop's proxy.
+- The tray needs something on the panel to host it. On GNOME that is an
+  AppIndicator extension, which is not installed by default; without one the icon
+  never appears, and the close button then quits instead of hiding.
+- Tray tooltips and click events are Windows-only. Linux's AppIndicator hands the
+  menu to the panel and reports no clicks, so the menu's first item is the way
+  back to the window.
+- The exit-IP readout asks a third-party echo service (`ip.sb`, `ifconfig.co`),
+  which sees the tunnel's exit address. It runs on connect and on node switch;
+  there is no setting to turn it off yet.
+- Custom rules cover one matcher and one destination each. Anything needing two
+  conditions at once is a config file, which this app renders but does not accept
+  hand edits to.
 
 ## Security
 

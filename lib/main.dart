@@ -5,11 +5,16 @@
 /// desktop-sized windows.
 library;
 
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'data/rule_sets.dart';
 import 'data/storage.dart';
+import 'platform/desktop_shell.dart';
+import 'platform/single_instance.dart';
 import 'l10n/app_localizations.dart';
 import 'models/app_settings.dart';
 import 'platform/proxy_controller.dart';
@@ -20,48 +25,115 @@ import 'ui/nodes_page.dart';
 import 'ui/notice_text.dart';
 import 'ui/rules_page.dart';
 import 'ui/settings_page.dart';
+import 'ui/components.dart';
 import 'ui/theme.dart';
 import 'ui/widgets.dart';
 import 'version.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // The shell does not exist yet — it needs AppState, which needs storage — so
+  // the guard is handed a callback that defers to it once it does. An activation
+  // arriving in that window is dropped, which is the right answer: the first
+  // instance is still starting, and its window is about to appear anyway.
+  DesktopShell? shell;
+  if (isSupported && !await SingleInstance.claim(onActivate: () => shell?.activate())) {
+    // Another instance holds the socket and has been asked to show its window.
+    // Nothing has been initialised yet, so there is nothing to unwind.
+    exit(0);
+  }
+
+  // Before runApp, and before the user can reach the close button: the window
+  // has to be told not to quit on its own first. No-op off the desktop.
+  await DesktopShell.ensureWindowReady();
   final storage = await Storage.open();
   // Before the first config is rendered: with the rule-sets on disk the engine
   // starts without reaching the network, which is the difference between
   // connecting and not on a filtered or offline link.
   final ruleSetDir = await BundledRuleSets.prepare();
-  runApp(
-    SingBoxApp(
-      state: AppState(
-        storage: storage,
-        controller: createProxyController(),
-        ruleSetDir: ruleSetDir,
-      ),
-    ),
+  final state = AppState(
+    storage: storage,
+    controller: createProxyController(),
+    ruleSetDir: ruleSetDir,
   );
+  runApp(SingBoxApp(state: state));
+  // After runApp so the icon does not delay the first frame. Unawaited for the
+  // same reason: a panel that is slow to accept an indicator must not hold up
+  // the window.
+  shell = DesktopShell(state);
+  unawaited(shell.start());
 }
 
 /// Hosts the shell. [state] is owned by the caller (`main`, or a test), which
 /// is also responsible for disposing it.
-class SingBoxApp extends StatelessWidget {
+class SingBoxApp extends StatefulWidget {
   const SingBoxApp({super.key, required this.state});
 
   final AppState state;
 
   @override
+  State<SingBoxApp> createState() => _SingBoxAppState();
+}
+
+class _SingBoxAppState extends State<SingBoxApp> {
+  /// The two settings [MaterialApp] actually reads, as a notifier that only
+  /// fires when one of them changes.
+  ///
+  /// AppState notifies for everything — a traffic sample a second, a log line per
+  /// connection — and MaterialApp sits above Theme, Localizations and every page,
+  /// so rebuilding it on those was the most expensive listener in the app for the
+  /// least reason. This narrows it to the two values it uses.
+  late final _presentation =
+      ValueNotifier<({AppThemeMode theme, AppLanguage language})>(_read());
+
+  ({AppThemeMode theme, AppLanguage language}) _read() => (
+        theme: widget.state.settings.themeMode,
+        language: widget.state.settings.language,
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    widget.state.addListener(_onStateChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.state.removeListener(_onStateChanged);
+    _presentation.dispose();
+    super.dispose();
+  }
+
+  /// A record, so ValueNotifier's own equality check does the filtering: the
+  /// value only differs when one of the two fields does.
+  void _onStateChanged() => _presentation.value = _read();
+
+  AppState get state => widget.state;
+
+  /// Built once and reused. Neither depends on anything that changes at runtime,
+  /// and rebuilding the pair measured about 108us — paid on every log line, for
+  /// two objects that came out identical every time.
+  static final _light = buildAppTheme(Brightness.light);
+  static final _dark = buildAppTheme(Brightness.dark);
+
+  @override
   Widget build(BuildContext context) {
-    // Rebuild on settings changes: theme and locale both come from AppState.
-    return AnimatedBuilder(
-      animation: state,
-      builder: (context, _) {
-        final settings = state.settings;
+    // Rebuilds only when the theme or the locale actually changes.
+    //
+    // Not a plain listen on AppState: that notifies on every traffic sample and
+    // every log line, and each one rebuilt MaterialApp — which rebuilds the
+    // Localizations and Theme scopes and everything under them. The pages that
+    // need live data listen for themselves.
+    return ValueListenableBuilder<({AppThemeMode theme, AppLanguage language})>(
+      valueListenable: _presentation,
+      builder: (context, settings, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           onGenerateTitle: (context) => L10n.of(context).appTitle,
-          theme: buildAppTheme(Brightness.light),
-          darkTheme: buildAppTheme(Brightness.dark),
-          themeMode: switch (settings.themeMode) {
+          theme: _light,
+          darkTheme: _dark,
+          themeMode: switch (settings.theme) {
             AppThemeMode.system => ThemeMode.system,
             AppThemeMode.light => ThemeMode.light,
             AppThemeMode.dark => ThemeMode.dark,
@@ -122,6 +194,14 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   var _tab = AppTab.home;
 
+  /// The only thing the shell's own chrome reads from state.
+  ///
+  /// The rail, the navigation bar and the [ConsoleBackground] all key off the
+  /// accent colour, which follows this one bool. Kept as a notifier so they stop
+  /// rebuilding on the things they do not read — a traffic sample a second, and a
+  /// log line per connection while the engine is busy.
+  late final _connected = ValueNotifier<bool>(widget.state.isConnected);
+
   @override
   void initState() {
     super.initState();
@@ -131,12 +211,16 @@ class _AppShellState extends State<AppShell> {
   @override
   void dispose() {
     widget.state.removeListener(_onStateChanged);
+    _connected.dispose();
     super.dispose();
   }
 
   /// Surfaces one-shot notices from [AppState] as snackbars, localizing the
   /// notice kind here since the state layer holds no BuildContext.
   void _onStateChanged() {
+    // ValueNotifier drops a write that equals the current value, so this only
+    // rebuilds the chrome when the connection actually changed.
+    _connected.value = widget.state.isConnected;
     final notice = widget.state.takeNotice();
     if (notice == null || !mounted) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -175,42 +259,58 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final l10n = L10n.of(context);
 
-    return AnimatedBuilder(
-      animation: widget.state,
-      builder: (context, _) {
-        final page = switch (_tab) {
-          AppTab.home => HomePage(
-              state: widget.state,
-              onOpenNodes: () => _goToTab(AppTab.nodes),
-            ),
-          AppTab.nodes => NodesPage(state: widget.state),
-          AppTab.rules => RulesPage(state: widget.state),
-          AppTab.logs => LogsPage(state: widget.state),
-          AppTab.settings => SettingsPage(
-              state: widget.state,
-              onOpenLogs: () => _goToTab(AppTab.logs),
-            ),
-        };
+    // Built here, once per tab change, rather than inside a builder that runs on
+    // every notification. Each page subscribes to what it actually reads — see
+    // PageBody — so rebuilding all of them from the shell was redrawing four
+    // screens nobody was looking at for every log line.
+    final page = switch (_tab) {
+      AppTab.home => HomePage(
+          state: widget.state,
+          onOpenNodes: () => _goToTab(AppTab.nodes),
+        ),
+      AppTab.nodes => NodesPage(state: widget.state),
+      AppTab.rules => RulesPage(state: widget.state),
+      AppTab.logs => LogsPage(state: widget.state),
+      AppTab.settings => SettingsPage(
+          state: widget.state,
+          onOpenLogs: () => _goToTab(AppTab.logs),
+        ),
+    };
 
+    return ValueListenableBuilder<bool>(
+      valueListenable: _connected,
+      builder: (context, connected, _) {
         return LayoutBuilder(
           builder: (context, constraints) {
+            final accent =
+                connected ? context.palette.mint : context.palette.violet;
+            final transitioningPage = _TabTransition(
+              tab: _tab,
+              child: page,
+            );
             if (constraints.maxWidth >= 840) {
               return Scaffold(
-                body: Row(
-                  children: [
-                    _DesktopRail(
-                      selected: _tab,
-                      connected: widget.state.isConnected,
-                      onSelected: _goToTab,
-                    ),
-                    Expanded(child: page),
-                  ],
+                body: ConsoleBackground(
+                  accent: accent,
+                  child: Row(
+                    children: [
+                      _DesktopRail(
+                        selected: _tab,
+                        connected: connected,
+                        onSelected: _goToTab,
+                      ),
+                      Expanded(child: transitioningPage),
+                    ],
+                  ),
                 ),
               );
             }
 
             return Scaffold(
-              body: SafeArea(bottom: false, child: page),
+              body: ConsoleBackground(
+                accent: accent,
+                child: SafeArea(bottom: false, child: transitioningPage),
+              ),
               bottomNavigationBar: NavigationBar(
                 selectedIndex: _tab.index,
                 onDestinationSelected: (index) =>
@@ -228,6 +328,39 @@ class _AppShellState extends State<AppShell> {
           },
         );
       },
+    );
+  }
+}
+
+/// Keeps tab changes spatially continuous without making a navigation action
+/// feel like a route push. The outgoing page is still visible for one short
+/// beat, so a toolbar changing into another one reads as intentional rather
+/// than as a redraw. Reduced-motion users get an immediate replacement.
+class _TabTransition extends StatelessWidget {
+  const _TabTransition({required this.tab, required this.child});
+
+  final AppTab tab;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = motionOf(context, Motion.normal);
+    return AnimatedSwitcher(
+      duration: duration,
+      reverseDuration: duration,
+      switchInCurve: Motion.curve,
+      switchOutCurve: Curves.easeOut,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(.012, 0),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        ),
+      ),
+      child: KeyedSubtree(key: ValueKey(tab), child: child),
     );
   }
 }

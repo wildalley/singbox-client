@@ -43,6 +43,7 @@ Map<String, dynamic> _build({
   required AppSettings settings,
   String? ruleSetDir,
   String clashSecret = 'test-secret',
+  bool? tunOnly,
 }) =>
     ConfigBuilder.build(
       nodes: nodes,
@@ -50,6 +51,9 @@ Map<String, dynamic> _build({
       settings: settings,
       clashSecret: clashSecret,
       ruleSetDir: ruleSetDir,
+      // Pinned false by default: the real value is Platform.isAndroid, and a
+      // test that renders differently per host is a test that proves nothing.
+      tunOnly: tunOnly ?? false,
     );
 
 void main() {
@@ -328,11 +332,14 @@ void main() {
   });
 
   group('tun inbound', () {
+    // Every case here pins ProxyMode.tun: the default is system-proxy mode,
+    // which renders no tun at all, and these read it as inbounds[0].
     test('applies mtu, stack, and strict route from settings', () {
       final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(
+          proxyMode: ProxyMode.tun,
           mtu: 1500,
           tunStack: TunStack.gvisor,
           strictRoute: true,
@@ -349,12 +356,12 @@ void main() {
       final v4 = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(ipv6: false),
+        settings: const AppSettings(proxyMode: ProxyMode.tun, ipv6: false),
       );
       final v6 = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(ipv6: true),
+        settings: const AppSettings(proxyMode: ProxyMode.tun, ipv6: true),
       );
 
       expect(((v4['inbounds'] as List).first as Map)['address'], hasLength(1));
@@ -365,12 +372,12 @@ void main() {
       final off = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(systemProxy: false),
+        settings: const AppSettings(proxyMode: ProxyMode.tun, systemProxy: false),
       );
       final on = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(systemProxy: true),
+        settings: const AppSettings(proxyMode: ProxyMode.tun, systemProxy: true),
       );
 
       expect(((off['inbounds'] as List).first as Map)['platform'], isNull);
@@ -384,7 +391,7 @@ void main() {
       final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(systemProxy: true),
+        settings: const AppSettings(proxyMode: ProxyMode.tun, systemProxy: true),
       );
 
       final inbounds = config['inbounds'] as List;
@@ -491,21 +498,53 @@ void main() {
       }
     });
 
-    test('tun mode is unchanged by the mode existing', () {
-      // Android renders through the same builder and never sets the mode, so
-      // the default has to produce exactly the config it produced before.
-      final explicit = _build(
-        nodes: [_node()],
-        selectedNodeId: 'n1',
-        settings: const AppSettings(proxyMode: ProxyMode.tun),
-      );
-      final byDefault = _build(
+    test('the default mode renders no tun', () {
+      // What a fresh desktop install starts on. If a tun ever appears here, the
+      // first connect on a machine with no capability granted fails, and the
+      // mode that is supposed to always work is the one that broke.
+      final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
         settings: const AppSettings(),
       );
 
-      expect(ConfigBuilder.encode(explicit), ConfigBuilder.encode(byDefault));
+      expect(
+        (config['inbounds'] as List).where((item) => (item as Map)['type'] == 'tun'),
+        isEmpty,
+      );
+    });
+
+    test('Android renders a tun whatever the stored mode says', () {
+      // Its VpnService hands over a tun and the settings page offers no other
+      // mode there, so a stored system-proxy value — the desktop default,
+      // written by the same settings object — must not empty out the one inbound
+      // the VPN has to feed.
+      final config = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(proxyMode: ProxyMode.systemProxy),
+        tunOnly: true,
+      );
+
+      expect(((config['inbounds'] as List).first as Map)['type'], 'tun');
+    });
+
+    test('tun mode renders the same config it always did', () {
+      // The mode is a desktop concept; asking for tun explicitly has to produce
+      // what the builder produced before the mode existed.
+      final explicit = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(proxyMode: ProxyMode.tun),
+      );
+      final forced = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(proxyMode: ProxyMode.tun),
+        tunOnly: true,
+      );
+
+      expect(ConfigBuilder.encode(explicit), ConfigBuilder.encode(forced));
       expect(((explicit['inbounds'] as List).first as Map)['type'], 'tun');
     });
   });

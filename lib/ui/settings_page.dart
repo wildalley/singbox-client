@@ -28,7 +28,10 @@ class SettingsPage extends StatelessWidget {
   final VoidCallback onOpenLogs;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PageBody(state: state, builder: _build);
+
+  Widget _build(BuildContext context) {
     final l10n = L10n.of(context);
     final settings = state.settings;
 
@@ -57,7 +60,8 @@ class SettingsPage extends StatelessWidget {
           rows: [
             // Android's tun arrives with the VpnService dialog, so there is no
             // choice to offer there. Only the desktop, where a tun needs a
-            // capability the app cannot ask for, has a second mode worth having.
+            // capability the app has to be granted, has a second mode worth
+            // having — and it starts on the one that needs no grant at all.
             if (!Platform.isAndroid)
               SettingRow(
                 icon: Icons.swap_horiz_outlined,
@@ -66,8 +70,9 @@ class SettingsPage extends StatelessWidget {
                 trailing: _ModeMenu(state: state),
               ),
             // Everything below describes the `tun` inbound, which system-proxy
-            // mode does not render. Hidden rather than shown doing nothing.
-            if (settings.proxyMode == ProxyMode.tun) ...[
+            // mode does not render. Hidden rather than shown doing nothing —
+            // and shown on Android regardless, which always renders one.
+            if (Platform.isAndroid || settings.proxyMode == ProxyMode.tun) ...[
               SettingRow(
                 icon: Icons.vpn_lock_outlined,
                 title: l10n.settingsTunStack,
@@ -166,6 +171,17 @@ class SettingsPage extends StatelessWidget {
               },
               trailing: _LanguageMenu(state: state),
             ),
+            // Desktop only: Android has no window to close and no tray to close
+            // it to — the tunnel there belongs to a foreground service.
+            if (!Platform.isAndroid)
+              SettingRow(
+                icon: Icons.dock_outlined,
+                title: l10n.settingsCloseToTray,
+                subtitle: l10n.settingsCloseToTrayBody,
+                value: settings.closeToTray,
+                onChanged: (value) =>
+                    state.applySettings(settings.copyWith(closeToTray: value)),
+              ),
           ],
         ),
         SettingGroup(

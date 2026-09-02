@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rasterizes docs/design/icon/*.svg into the pre-26 launcher PNGs.
+# Rasterizes docs/design/icon/*.svg into the launcher PNGs and the tray icons.
 #
 # API 26+ gets the vector adaptive icon (res/drawable/ic_launcher_*.xml), so
 # these only serve Android 7.x — but minSdk is 24, so they ship. The _round set
@@ -27,4 +27,19 @@ for name in ic_launcher ic_launcher_round; do
     rsvg-convert -w "$size" -h "$size" -o "$out" "docs/design/icon/$name.svg"
     echo "$out  ${size}x${size}"
   done
+done
+
+# Tray icons. Unlike the launcher set these are read at runtime from the asset
+# bundle — tray_manager resolves a Linux icon path against
+# <executable>/data/flutter_assets — so they live under assets/ and are declared
+# in pubspec.yaml.
+#
+# One size, at 64px. The panel draws these at around 22px, but a 22px source is
+# a blurred smudge on a HiDPI panel; 64 gives appindicator room to scale down
+# cleanly without carrying a pointless 512px sprite for a status dot.
+for name in tray_connected tray_disconnected; do
+  out=assets/tray/$name.png
+  mkdir -p "$(dirname "$out")"
+  rsvg-convert -w 64 -h 64 -o "$out" "docs/design/icon/$name.svg"
+  echo "$out  64x64"
 done
