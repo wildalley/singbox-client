@@ -34,6 +34,12 @@ abstract interface class ProxyController {
 
   Future<void> stop();
 
+  /// Clears the engine's in-memory log buffer.
+  ///
+  /// The UI keeps its own bounded copy, so implementations should treat this
+  /// as best-effort when the tunnel is not running.
+  Future<void> clearLogs();
+
   /// Applies a new config without tearing the tunnel down.
   Future<void> reload(String configJson);
 
@@ -184,6 +190,16 @@ class AndroidProxyController implements ProxyController {
   }
 
   @override
+  Future<void> clearLogs() async {
+    try {
+      await _method.invokeMethod<void>('clearLogs');
+    } on PlatformException {
+      // Clearing a local viewer must still work when the service has already
+      // gone away; the native buffer is only a secondary copy.
+    }
+  }
+
+  @override
   Future<void> reload(String configJson) async {
     await _method.invokeMethod<void>('reload', {'config': configJson});
   }
@@ -256,6 +272,9 @@ class UnsupportedProxyController implements ProxyController {
     _state = ProxyState.disconnected;
     if (!_stateController.isClosed) _stateController.add(_state);
   }
+
+  @override
+  Future<void> clearLogs() async {}
 
   @override
   Future<void> reload(String configJson) async {}

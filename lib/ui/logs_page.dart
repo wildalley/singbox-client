@@ -70,6 +70,11 @@ class _LogsPageState extends State<LogsPage> {
             ),
           ),
           IconButton(
+            tooltip: l10n.logsClear,
+            onPressed: logs.isEmpty ? null : widget.state.clearLogs,
+            icon: const Icon(Icons.delete_sweep_outlined, size: 20),
+          ),
+          IconButton(
             tooltip: l10n.logsCopyAll,
             onPressed: logs.isEmpty
                 ? null

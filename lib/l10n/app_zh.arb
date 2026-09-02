@@ -111,6 +111,7 @@
   "logsFollowing": "自动跟随",
   "logsPaused": "已暂停",
   "logsCopyAll": "复制全部",
+  "logsClear": "清空日志",
   "logsCopied": "日志已复制",
   "logsNoneYet": "还没有日志",
   "logsNothingLogged": "暂无日志输出",

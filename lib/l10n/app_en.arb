@@ -176,6 +176,7 @@
   "logsFollowing": "Following",
   "logsPaused": "Paused",
   "logsCopyAll": "Copy all",
+  "logsClear": "Clear logs",
   "logsCopied": "Logs copied",
   "logsNoneYet": "No logs yet",
   "logsNothingLogged": "Nothing logged yet",

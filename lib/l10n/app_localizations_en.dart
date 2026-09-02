@@ -369,6 +369,9 @@ class L10nEn extends L10n {
   String get logsCopyAll => 'Copy all';
 
   @override
+  String get logsClear => 'Clear logs';
+
+  @override
   String get logsCopied => 'Logs copied';
 
   @override

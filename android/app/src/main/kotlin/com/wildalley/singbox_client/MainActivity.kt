@@ -97,6 +97,26 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
 
+            "clearLogs" -> {
+                val service = SingBoxVpnService.instance
+                if (service == null) {
+                    // The Flutter-side list is still cleared when the service
+                    // has already stopped, so this is intentionally a no-op.
+                    result.success(null)
+                } else {
+                    try {
+                        service.clearLogs()
+                        result.success(null)
+                    } catch (error: Throwable) {
+                        result.error(
+                            "clear_logs_failed",
+                            error.message ?: "Could not clear logs",
+                            null,
+                        )
+                    }
+                }
+            }
+
             "reload" -> {
                 val config = call.argument<String>("config")
                 if (config.isNullOrEmpty()) {

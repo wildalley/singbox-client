@@ -15,7 +15,7 @@ a self-built `libbox.aar`.
 - Foreground `VpnService` owning the VPN lifecycle, with a notification and a
   stop action
 - sing-box v1.13 driven through `CommandServer` / `CommandClient`
-- Live status, traffic counters, and log streaming into the UI
+- Live status, traffic counters, and a bounded, clearable log stream in the UI
 - Runtime node switching via the `selector` outbound, without restarting the
   tunnel
 - `urltest` group as a selectable exit, so the engine can pick the fastest node

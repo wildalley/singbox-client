@@ -29,6 +29,7 @@ abstract interface class ProxyController {
   Future<bool> requestPermission();
   Future<void> start(String configJson);
   Future<void> stop();
+  Future<void> clearLogs();
   Future<void> reload(String configJson);
   Future<void> selectOutbound(String outboundTag);
   Future<void> urlTest();
@@ -60,6 +61,11 @@ lifecycle and the foreground notification. libbox drives the proxy:
   TCP-based protocols; Hysteria2, TUIC, and WireGuard stay untested until the
   engine is running because their UDP ports cannot be meaningfully checked with
   a TCP connect.
+- Log output is bounded at both sides of the bridge: `BoxEvents` forwards at
+  most 60 lines per second and reports suppressed lines, while `AppState`
+  retains the latest 500 entries and batches UI notifications. `clearLogs`
+  clears both the visible list and libbox's in-memory command log buffer; stale
+  callbacks are ignored after a failed start or stop.
 - `BoxEvents` holds state as process-global truth, because the service outlives
   the Flutter engine when the user swipes the app away. `MainActivity` attaches
   a listener and replays the current status when a new engine connects.

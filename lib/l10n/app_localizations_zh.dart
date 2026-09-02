@@ -350,6 +350,9 @@ class L10nZh extends L10n {
   String get logsCopyAll => '复制全部';
 
   @override
+  String get logsClear => '清空日志';
+
+  @override
   String get logsCopied => '日志已复制';
 
   @override

@@ -763,6 +763,12 @@ abstract class L10n {
   /// **'Copy all'**
   String get logsCopyAll;
 
+  /// No description provided for @logsClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear logs'**
+  String get logsClear;
+
   /// No description provided for @logsCopied.
   ///
   /// In en, this message translates to:

@@ -119,13 +119,7 @@ class AppState extends ChangeNotifier {
       _pushHistory(value);
       notifyListeners();
     });
-    _logSub = _controller.logs.listen((entry) {
-      _logs.add(entry);
-      if (_logs.length > _maxLogs) {
-        _logs.removeRange(0, _logs.length - _maxLogs);
-      }
-      notifyListeners();
-    });
+    _logSub = _controller.logs.listen(_onLog);
 
     // Shown in Settings; failure just leaves the row as unknown.
     _controller.coreVersion().then((value) {
@@ -145,6 +139,11 @@ class AppState extends ChangeNotifier {
   static const autoSelection = '[auto]';
 
   static const _maxLogs = 500;
+
+  /// Coalesce bursts from the engine into at most ten UI rebuilds per second.
+  /// The native bridge applies a second cap before events reach this layer;
+  /// this timer keeps a busy log stream from rebuilding every widget per line.
+  static const _logNotifyInterval = Duration(milliseconds: 100);
 
   /// 60 samples at roughly one per second — the rolling window the design plan
   /// asks for before any figure is compared against an earlier period.
@@ -193,6 +192,8 @@ class AppState extends ChangeNotifier {
   StreamSubscription<ProxyState>? _stateSub;
   StreamSubscription<ProxyTraffic>? _trafficSub;
   StreamSubscription<ProxyLogEntry>? _logSub;
+  Timer? _logNotifyTimer;
+  var _disposed = false;
 
   var _busy = false;
   var _testingLatency = false;
@@ -341,6 +342,37 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> toggleConnection() => isConnected ? disconnect() : connect();
+
+  /// Removes both the visible log list and the engine's retained buffer.
+  ///
+  /// The local list is cleared synchronously so the page responds immediately;
+  /// clearing the native copy is best-effort because the service may already
+  /// have stopped after a failed connection.
+  Future<void> clearLogs() async {
+    _logs.clear();
+    _logNotifyTimer?.cancel();
+    _logNotifyTimer = null;
+    notifyListeners();
+
+    try {
+      await _controller.clearLogs();
+    } on Object catch (_) {
+      // The visible viewer must remain usable when the native service is gone.
+    }
+  }
+
+  void _onLog(ProxyLogEntry entry) {
+    if (_disposed) return;
+    _logs.add(entry);
+    if (_logs.length > _maxLogs) {
+      _logs.removeRange(0, _logs.length - _maxLogs);
+    }
+    if (_logNotifyTimer != null) return;
+    _logNotifyTimer = Timer(_logNotifyInterval, () {
+      _logNotifyTimer = null;
+      if (!_disposed) notifyListeners();
+    });
+  }
 
   /// Selects [node]. While connected this switches the live selector outbound
   /// instead of restarting the tunnel.
@@ -965,6 +997,9 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _logNotifyTimer?.cancel();
+    _logNotifyTimer = null;
     _stateSub?.cancel();
     _trafficSub?.cancel();
     _logSub?.cancel();

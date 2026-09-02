@@ -41,6 +41,10 @@ class SingBoxVpnService : VpnService() {
     private var tunDescriptor: ParcelFileDescriptor? = null
     private val platform by lazy { BoxPlatform(this) }
 
+    /** Drops callbacks that were queued by libbox after a failed start/stop. */
+    @Volatile
+    private var acceptingLogs = false
+
     /** Guards start/stop/reload against concurrent intents. */
     private val lock = Any()
 
@@ -110,12 +114,14 @@ class SingBoxVpnService : VpnService() {
         synchronized(lock) {
             if (commandServer != null) {
                 // Already running: treat this as a config change.
+                acceptingLogs = true
                 runCatching { commandServer?.startOrReloadService(config, OverrideOptions()) }
                     .onFailure { fail(it) }
                 return
             }
 
             BoxEvents.setStage(BoxEvents.Stage.STARTING)
+            acceptingLogs = true
             try {
                 val server = Libbox.newCommandServer(ServerHandler(), platform)
                 server.start()
@@ -136,6 +142,10 @@ class SingBoxVpnService : VpnService() {
 
     private fun stopTunnel() {
         synchronized(lock) {
+            // libbox may finish a log callback after close/disconnect. Do not
+            // let stale failure output repopulate the viewer or flood the UI.
+            acceptingLogs = false
+            BoxEvents.resetLogThrottle()
             if (commandServer == null && tunDescriptor == null) {
                 stopForegroundCompat()
                 stopSelf()
@@ -187,6 +197,13 @@ class SingBoxVpnService : VpnService() {
         client.urlTest(group)
     }
 
+    /** Clears the command client's retained log buffer when the service exists. */
+    fun clearLogs() {
+        synchronized(lock) {
+            commandClient?.clearLogs()
+        }
+    }
+
     private fun connectCommandClient() {
         val options = CommandClientOptions().apply {
             statusInterval = STATUS_INTERVAL_NANOS
@@ -204,6 +221,9 @@ class SingBoxVpnService : VpnService() {
     }
 
     private fun fail(error: Throwable) {
+        // Stop forwarding immediately, even when a reload fails and the
+        // service is still alive long enough for libbox to flush its queue.
+        acceptingLogs = false
         val detail = error.message ?: error.toString()
         Log.e(TAG, "sing-box failure: $detail", error)
         BoxEvents.setStage(BoxEvents.Stage.ERROR, detail)
@@ -339,7 +359,9 @@ class SingBoxVpnService : VpnService() {
         override fun connected() = Unit
 
         override fun disconnected(message: String) {
-            if (message.isNotEmpty()) BoxEvents.emitLog("disconnected: $message")
+            if (acceptingLogs && message.isNotEmpty()) {
+                BoxEvents.emitLog("disconnected: $message")
+            }
         }
 
         override fun writeStatus(message: StatusMessage) {
@@ -355,12 +377,12 @@ class SingBoxVpnService : VpnService() {
         }
 
         override fun writeLogs(messageList: LogIterator) {
-            while (messageList.hasNext()) {
+            while (acceptingLogs && messageList.hasNext()) {
                 BoxEvents.emitLog(messageList.next().message)
             }
         }
 
-        override fun clearLogs() = Unit
+        override fun clearLogs() = BoxEvents.resetLogThrottle()
 
         override fun setDefaultLogLevel(level: Int) = Unit
 
