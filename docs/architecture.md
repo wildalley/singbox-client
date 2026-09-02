@@ -41,9 +41,10 @@ abstract interface class ProxyController {
 
 `ProxyState.stage` makes permission, starting, connected, stopping,
 disconnected, and error states explicit. `createProxyController()` returns
-`AndroidProxyController` on Android and `UnsupportedProxyController` elsewhere,
-so the UI, import pipeline, and config rendering stay usable on platforms whose
-runtime is not implemented yet.
+`AndroidProxyController` on Android, `WindowsProxyController` on Windows, and
+`UnsupportedProxyController` elsewhere. The UI, import pipeline, and config
+rendering therefore stay usable even on platforms whose runtime is not
+implemented yet.
 
 ## Platform adapters
 
@@ -73,11 +74,23 @@ lifecycle and the foreground notification. libbox drives the proxy:
 Channels: `singbox/control` (methods) and `singbox/events` (status, traffic,
 logs, outbound groups).
 
-**Windows / Linux — not implemented.** Planned as a supervised `sing-box`
-process with TUN integration, plus a system-proxy / firewall flow on Windows and
-systemd/polkit handling on Linux. Process stdout/stderr must be parsed into
-structured, redacted events. Keep the UI usable when the service is unavailable
-and report actionable permission errors.
+**Windows — system-proxy runtime implemented.** `WindowsProxyController` writes
+the rendered config to a per-run file, removes the Android-only TUN inbound,
+starts the checksum-pinned `sing-box.exe`, and waits for its loopback Clash API
+before reporting `connected`. Its stdout/stderr, `/connections` counters,
+selector API, and URL-test API feed the same streams as Android. When the
+Settings system-proxy toggle is on, the Windows runner's WinINet bridge saves
+the user's proxy/PAC registry values, sets `127.0.0.1:2080`, and restores them on
+stop or the next launch after a crash. The core process is attached to a native
+Job Object with `KILL_ON_JOB_CLOSE`, so closing the runner also reaps a child
+left behind by a Dart shutdown. The current mode is intentionally not a
+transparent tunnel: applications that ignore WinINet or use raw UDP bypass it.
+
+**Windows TUN / Linux — not implemented.** Transparent Windows routing still
+needs an elevated Wintun/helper flow, route and DNS rollback, and sleep/resume
+handling. Linux remains planned as a supervised process with systemd/polkit
+integration. Keep the UI usable when either runtime is unavailable and report
+actionable permission errors.
 
 ## Configuration flow
 
@@ -119,7 +132,7 @@ a caller cannot forget it and quietly render an open listener.
 
 ## Remaining work
 
-- Desktop process supervision and privileged TUN / system-proxy operations.
+- Privileged Windows TUN / route integration and Linux process supervision.
 - Per-app proxy UI (the setting and config plumbing exist; there is no picker).
 - Release signing: `android/app/build.gradle.kts` still signs with debug keys.
 - Additional ABIs — `scripts/build-libbox.sh` builds arm64 only by default.

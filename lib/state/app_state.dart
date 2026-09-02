@@ -8,7 +8,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../data/config_builder.dart';
 import '../data/importer.dart';
@@ -82,7 +82,7 @@ class AppNotice {
   final SubscriptionFailure? failure;
 }
 
-class AppState extends ChangeNotifier {
+class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState({
     required Storage storage,
     required ProxyController controller,
@@ -112,6 +112,11 @@ class AppState extends ChangeNotifier {
     final storedSecret = _storage.readClashSecret();
     _clashSecret = storedSecret ?? _newClashSecret();
     if (storedSecret == null) _storage.writeClashSecret(_clashSecret);
+
+    // Desktop windows can close without a widget-level dispose callback. The
+    // lifecycle hook gives the Windows controller a chance to stop sing-box
+    // and restore WinINet before the Flutter engine is torn down.
+    WidgetsBinding.instance.addObserver(this);
 
     _stateSub = _controller.states.listen(_onProxyState);
     _trafficSub = _controller.traffic.listen((value) {
@@ -839,6 +844,23 @@ class AppState extends ChangeNotifier {
 
   // ----------------------------------------------------------------- helpers
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached && !_disposed) {
+      unawaited(_stopForLifecycle());
+    }
+  }
+
+  Future<void> _stopForLifecycle() async {
+    try {
+      await _controller.stop();
+    } on Object {
+      // The engine is already leaving; there is no UI left to report a
+      // shutdown race to, and the native Windows runner has its own restore
+      // fallback.
+    }
+  }
+
   void _onProxyState(ProxyState state) {
     final wasConnected = _proxyState.isConnected;
     _proxyState = state;
@@ -998,6 +1020,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _logNotifyTimer?.cancel();
     _logNotifyTimer = null;
     _stateSub?.cancel();

@@ -125,7 +125,7 @@
   "settingsProxy": "代理",
   "settingsTunStack": "TUN 网络栈",
   "settingsSystemProxy": "系统 HTTP 代理",
-  "settingsSystemProxyBody": "同时在隧道上开放代理端口,供忽略 VPN 的应用使用",
+  "settingsSystemProxyBody": "开放本地代理；Windows 同时启用系统代理",
   "settingsStrictRoute": "严格路由",
   "settingsStrictRouteBody": "阻止试图绕过隧道的流量",
   "settingsRouting": "路由",

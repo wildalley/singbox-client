@@ -28,6 +28,11 @@ android/app/libs/*.aar
 # navigation into the generated Java bindings.
 android/app/libs/*-sources.jar
 
+# Windows runtime binary is downloaded and checksum-pinned by CI rather than
+# committed to the source tree.
+windows/runner/resources/*.exe
+windows/runner/resources/*.dll
+
 # Packaging output: scripts/package.sh writes the deb, Arch package and APK here.
 dist/
 

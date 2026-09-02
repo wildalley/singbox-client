@@ -1,8 +1,8 @@
 /// Platform-neutral proxy runtime boundary.
 ///
 /// The UI talks only to [ProxyController]. Android is backed by a VpnService
-/// running sing-box via libbox; desktop platforms currently get
-/// [UnsupportedProxyController] until process supervision lands.
+/// running sing-box via libbox; Windows supervises a bundled standalone core
+/// for its loopback system-proxy runtime.
 library;
 
 import 'dart:async';
@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 
 import '../models/proxy_state.dart';
 import 'app_paths.dart';
+import 'windows_proxy_controller.dart';
 
 abstract interface class ProxyController {
   Stream<ProxyState> get states;
@@ -294,6 +295,7 @@ class UnsupportedProxyController implements ProxyController {
 
 ProxyController createProxyController() {
   if (Platform.isAndroid) return AndroidProxyController();
+  if (Platform.isWindows) return WindowsProxyController();
   return UnsupportedProxyController(
     'The ${Platform.operatingSystem} runtime is not implemented yet. '
     'Config rendering and node management still work.',

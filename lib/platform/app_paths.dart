@@ -8,6 +8,8 @@
 /// state stay in one place.
 library;
 
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 
 /// The channel name and method the Android host answers on.
@@ -18,15 +20,24 @@ const dataDirMethod = 'dataDir';
 
 const _channel = MethodChannel(appControlChannel);
 
-/// The app's private data directory, or null where there is no host to ask.
+/// The app's private data directory.
 ///
-/// Android returns `filesDir`. The desktop platforms have no host handler — no
-/// proxy runtime either, see `UnsupportedProxyController` — so the channel
-/// throws and they get null; callers fall back rather than fail.
+/// Android returns `filesDir`. Windows answers from the native runner so the
+/// process controller and rule-set unpacker share one stable location. The
+/// environment fallback keeps Windows development builds useful when the native
+/// runner is older than the Dart bundle. Other desktop hosts continue to return
+/// null until their native runtimes are implemented.
 Future<String?> appDataDirectory() async {
   try {
-    return await _channel.invokeMethod<String>(dataDirMethod);
+    final hostPath = await _channel.invokeMethod<String>(dataDirMethod);
+    if (hostPath != null && hostPath.isNotEmpty) return hostPath;
   } on Object {
-    return null;
+    // Desktop runners from an older build do not expose the channel yet.
   }
+
+  if (Platform.isWindows) {
+    final base = Platform.environment['LOCALAPPDATA'];
+    if (base != null && base.isNotEmpty) return '$base\\SingBox Client';
+  }
+  return null;
 }

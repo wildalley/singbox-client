@@ -30,11 +30,12 @@ class ConfigBuilder {
 
   /// Loopback HTTP/SOCKS inbound, on 127.0.0.1 only.
   ///
-  /// Two consumers: `systemProxy` advertises this address to Android, and the
-  /// in-app rule-set update sends its download through it. The second one is why
-  /// the inbound is unconditional — the app's own package is excluded from the
-  /// tunnel, so this is the only way anything the app fetches can leave through
-  /// the selected node.
+  /// Two consumers: `systemProxy` advertises this address to Android (and the
+  /// Windows adapter mirrors it into WinINet), while the in-app rule-set update
+  /// sends its download through it. The second one is why the inbound is
+  /// unconditional — the app's own package is excluded from the tunnel, so
+  /// this is the only way anything the app fetches can leave through the
+  /// selected node.
   static const localProxyPort = 2080;
 
   /// Builds the full configuration.

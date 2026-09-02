@@ -197,7 +197,7 @@
   "settingsProxy": "Proxy",
   "settingsTunStack": "TUN stack",
   "settingsSystemProxy": "System HTTP proxy",
-  "settingsSystemProxyBody": "Also expose a proxy on the tunnel for apps that ignore the VPN",
+  "settingsSystemProxyBody": "Expose the local proxy; on Windows, also enable it in WinINet",
   "settingsStrictRoute": "Strict route",
   "settingsStrictRouteBody": "Block traffic that tries to escape the tunnel",
   "settingsRouting": "Routing",

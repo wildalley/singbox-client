@@ -394,7 +394,7 @@ class L10nZh extends L10n {
   String get settingsSystemProxy => '系统 HTTP 代理';
 
   @override
-  String get settingsSystemProxyBody => '同时在隧道上开放代理端口,供忽略 VPN 的应用使用';
+  String get settingsSystemProxyBody => '开放本地代理；Windows 同时启用系统代理';
 
   @override
   String get settingsStrictRoute => '严格路由';

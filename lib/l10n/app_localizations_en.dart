@@ -422,7 +422,7 @@ class L10nEn extends L10n {
 
   @override
   String get settingsSystemProxyBody =>
-      'Also expose a proxy on the tunnel for apps that ignore the VPN';
+      'Expose the local proxy; on Windows, also enable it in WinINet';
 
   @override
   String get settingsStrictRoute => 'Strict route';

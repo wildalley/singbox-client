@@ -1,12 +1,13 @@
 # SingBox Client
 
-A Flutter sing-box client for **Android**, with Windows and Linux sharing the same
-UI and configuration layer. The interface follows the Google Stitch **Obsidian
+A Flutter sing-box client for **Android and Windows**, with Linux sharing the
+same UI and configuration layer. The interface follows the Google Stitch **Obsidian
 Signal** design system, in dark and light variants, with English and Chinese
 localization.
 
 On Android the proxy actually runs: a Kotlin `VpnService` drives sing-box through
-a self-built `libbox.aar`.
+a self-built `libbox.aar`. On Windows the app supervises a bundled `sing-box.exe`
+and exposes its loopback mixed proxy through the Windows system-proxy setting.
 
 ## Features
 
@@ -24,6 +25,18 @@ a self-built `libbox.aar`.
   reattaches to the running service
 - Routing rule-sets ship inside the APK, so a start needs no network; stale ones
   update themselves once the tunnel is up
+
+**Proxy runtime (Windows)**
+
+- A checksum-pinned `sing-box.exe` is supervised beside the Flutter executable
+- Android-only TUN fields are removed from the desktop config; the loopback
+  `mixed` inbound remains on `127.0.0.1:2080`
+- The Windows system proxy is enabled only when **System proxy** is turned on in
+  Settings, and the user's previous WinINet/PAC values are restored on stop
+- The core is tied to a native Windows Job Object so closing the app also
+  reaps the supervised process
+- Process output, Clash API traffic counters, selector changes, and URL tests
+  feed the same bounded UI streams as Android
 
 **Import**
 
@@ -90,6 +103,12 @@ flutter run -d linux
 flutter run -d windows
 ```
 
+On Windows, import a subscription, turn on **Settings → System HTTP proxy**,
+then press **Connect**. The release bundle places `sing-box.exe` beside the
+Flutter executable; applications that honour the Windows/WinINet proxy use the
+selected node. Raw UDP clients, games, and applications with their own proxy
+settings need the planned TUN runtime instead.
+
 ### Packaging
 
 `scripts/package.sh` builds the distributables in one pass, into `dist/`:
@@ -104,7 +123,7 @@ scripts/package.sh deb apk    # or a named subset
 | `singbox-client_<version>-<build>_amd64.deb` | nothing past the Linux toolchain — `dpkg-deb` when present, otherwise `ar` + `tar` |
 | `singbox-client-<version>-<build>-x86_64.pkg.tar.zst` | `makepkg` and `fakeroot`, so an Arch host |
 | `singbox-client-<version>-<build>-arm64.apk` | a JDK, an Android SDK, and `android/app/libs/libbox.aar` |
-| `singbox-client-windows-x64-<sha>.zip` | a Windows runner with Visual Studio's C++ toolchain |
+| `singbox-client-windows-x64-<sha>.zip` | a Windows runner with Visual Studio's C++ toolchain and the pinned sing-box archive |
 
 Whatever is missing a tool is skipped with the reason printed; the rest still
 build. Icons are rasterized from `docs/design/icon/ic_launcher.svg` with
@@ -185,12 +204,14 @@ UI translates, so business logic stays free of `BuildContext`.
 | --- | --- | --- |
 | Android (arm64) | sing-box via libbox + VpnService | yes |
 | Linux | not implemented | yes |
-| Windows | not implemented | yes |
+| Windows | sing-box process + WinINet system proxy (HTTP/SOCKS clients) | yes |
+| Windows TUN | not implemented; requires an elevated Wintun flow | — |
 
-Desktop platforms get `UnsupportedProxyController`: node management, import, and
-config rendering all work, but starting a tunnel reports that the runtime is
-missing. Supervised-process and TUN integration is the next step, per
-[`docs/architecture.md`](docs/architecture.md).
+Linux still gets `UnsupportedProxyController`: node management, import, and
+config rendering work, but its proxy runtime is not implemented. Windows uses
+the supervised-process adapter described in
+[`docs/architecture.md`](docs/architecture.md); transparent TUN routing remains
+future work.
 
 ## Known gaps
 
