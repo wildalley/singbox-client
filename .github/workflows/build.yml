@@ -1,8 +1,8 @@
 name: build
 
-# Produces the artifacts the README documents — a deb, an Arch .pkg.tar.zst, and
-# an arm64 APK — on runners that have the JDK, Android SDK and NDK a desktop
-# checkout usually does not.
+# Produces the artifacts the README documents — a deb, an Arch .pkg.tar.zst, an
+# arm64 APK, and a Windows x64 bundle — on runners with the platform toolchains
+# a desktop checkout usually does not.
 #
 # The APK is signed with the debug key, exactly as android/app/build.gradle.kts
 # already does. It is a test build, not a distributable one; see "Known gaps".
@@ -145,6 +145,40 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Windows runners already contain the Visual Studio C++ toolchain that
+      # Flutter's Windows runner needs. The action pins the same Flutter SDK as
+      # the Linux jobs and caches both the SDK and pub dependencies.
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          architecture: x64
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build windows --release
+
+      - name: Package Windows bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive `
+            -Path "build/windows/x64/runner/Release/*" `
+            -DestinationPath "dist/singbox-client-windows-x64-${{ github.sha }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: singbox-client-windows-${{ github.sha }}
+          path: dist/*.zip
+          if-no-files-found: error
+
   arch:
     name: pkg.tar.zst
     runs-on: ubuntu-latest
@@ -209,7 +243,7 @@ jobs:
 
   release:
     name: release
-    needs: [package, arch]
+    needs: [package, windows, arch]
     # !cancelled() rather than success(): one broken artifact should not withhold
     # the others. Whatever uploaded gets attached, and the job says what came.
     if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}

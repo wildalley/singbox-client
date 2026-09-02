@@ -104,6 +104,7 @@ scripts/package.sh deb apk    # or a named subset
 | `singbox-client_<version>-<build>_amd64.deb` | nothing past the Linux toolchain — `dpkg-deb` when present, otherwise `ar` + `tar` |
 | `singbox-client-<version>-<build>-x86_64.pkg.tar.zst` | `makepkg` and `fakeroot`, so an Arch host |
 | `singbox-client-<version>-<build>-arm64.apk` | a JDK, an Android SDK, and `android/app/libs/libbox.aar` |
+| `singbox-client-windows-x64-<sha>.zip` | a Windows runner with Visual Studio's C++ toolchain |
 
 Whatever is missing a tool is skipped with the reason printed; the rest still
 build. Icons are rasterized from `docs/design/icon/ic_launcher.svg` with
@@ -116,12 +117,13 @@ falls back to `ar`+`tar`, and `makepkg` refuses to run as root anyway.
 
 ## Continuous integration
 
-`.github/workflows/build.yml` runs four jobs:
+`.github/workflows/build.yml` runs five jobs:
 
 | Job | Runner | Produces |
 | --- | --- | --- |
 | `verify` | `ubuntu-latest` | `flutter analyze`, `flutter test` |
 | `package` | `ubuntu-latest` | the deb and the arm64 APK |
+| `windows` | `windows-latest` | the Windows x64 release bundle (`.zip`) |
 | `arch` | `archlinux:base-devel` container | the `.pkg.tar.zst` |
 | `release` | `ubuntu-latest` | on a `v*` tag, one GitHub Release with whatever built |
 
@@ -149,7 +151,7 @@ flutter analyze
 flutter test
 ```
 
-242 tests pass: share-link parsing, config rendering, import format detection,
+246 tests pass: share-link parsing, config rendering, import format detection,
 UI interaction against a fake controller, and localization/theme coverage
 including palette contrast ratios.
 
