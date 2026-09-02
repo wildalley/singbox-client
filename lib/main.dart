@@ -5,6 +5,8 @@
 /// desktop-sized windows.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -44,18 +46,51 @@ Future<void> main() async {
 
 /// Hosts the shell. [state] is owned by the caller (`main`, or a test), which
 /// is also responsible for disposing it.
-class SingBoxApp extends StatelessWidget {
+class SingBoxApp extends StatefulWidget {
   const SingBoxApp({super.key, required this.state});
 
   final AppState state;
 
   @override
+  State<SingBoxApp> createState() => _SingBoxAppState();
+}
+
+class _SingBoxAppState extends State<SingBoxApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      unawaited(_stopForLifecycle());
+    }
+  }
+
+  Future<void> _stopForLifecycle() async {
+    try {
+      await widget.state.disconnect();
+    } on Object {
+      // The engine is already leaving; the native Windows runner has its own
+      // proxy restore and Job Object fallback.
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     // Rebuild on settings changes: theme and locale both come from AppState.
     return AnimatedBuilder(
-      animation: state,
+      animation: widget.state,
       builder: (context, _) {
-        final settings = state.settings;
+        final settings = widget.state.settings;
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           onGenerateTitle: (context) => L10n.of(context).appTitle,
@@ -77,7 +112,7 @@ class SingBoxApp extends StatelessWidget {
           locale: settings.language.code == null
               ? null
               : Locale(settings.language.code!),
-          home: AppShell(state: state),
+          home: AppShell(state: widget.state),
         );
       },
     );
