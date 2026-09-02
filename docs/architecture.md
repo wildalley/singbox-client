@@ -56,7 +56,10 @@ lifecycle and the foreground notification. libbox drives the proxy:
 - `Libbox.newCommandClient(...)` subscribes to the status, log, and outbound-group
   streams. The group subscription is what carries each member's `URLTestDelay`,
   so it is the only source of a latency measured *through* the proxy rather than
-  a TCP handshake to its server address.
+  a TCP handshake to its server address. The disconnected fallback only probes
+  TCP-based protocols; Hysteria2, TUIC, and WireGuard stay untested until the
+  engine is running because their UDP ports cannot be meaningfully checked with
+  a TCP connect.
 - `BoxEvents` holds state as process-global truth, because the service outlives
   the Flutter engine when the user swipes the app away. `MainActivity` attaches
   a listener and replays the current status when a new engine connects.

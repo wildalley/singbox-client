@@ -43,7 +43,9 @@ measured latency and favourites.
 - Dark and light themes, following the system setting or pinned manually
 - English and Chinese, following the system locale or pinned manually
 - Latency measured through the tunnel when it is up — the engine URL-tests each
-  proxy — and by TCP handshake with bounded concurrency when it is not
+  proxy — and by bounded TCP handshakes for TCP nodes when it is not; UDP/QUIC
+  nodes are measured after the tunnel starts so they are not falsely marked
+  unreachable
 - Nodes grouped by source, foldable, searchable, and sortable by latency
 - Subscriptions refresh themselves on connect when they have gone stale
 - Generated-config inspector for diagnostics

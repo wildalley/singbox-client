@@ -615,8 +615,10 @@ class AppState extends ChangeNotifier {
   /// up the engine is asked to URL-test the selector group, which times a real
   /// request *through* each proxy — the figure the user actually cares about.
   /// Otherwise there is no tunnel to measure through, so it falls back to a TCP
-  /// handshake against each node's server address, which at least says whether
-  /// the endpoint answers.
+  /// handshake against TCP-based node endpoints, which at least says whether
+  /// the endpoint answers. UDP/QUIC nodes stay untested on this path: a TCP
+  /// failure against a Hysteria2 port would be a false failure. Connect the
+  /// tunnel before testing those nodes so the engine can URL-test them.
   Future<void> testLatency() async {
     if (_testingLatency || _nodes.isEmpty) return;
     _testingLatency = true;
@@ -636,7 +638,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// TCP-handshake probe of every node, for when there is no tunnel.
+  /// TCP-handshake probe of TCP-based nodes, for when there is no tunnel.
   Future<void> _probeNodes() async {
     // Results stream in as each probe settles so a large subscription shows
     // progress instead of freezing until the slowest node times out.
@@ -772,7 +774,9 @@ class AppState extends ChangeNotifier {
       // The updater names the tags that failed, but in English and with nothing
       // the user can act on: offline, blocked, or an upstream hiccup all read the
       // same, and the old lists are still in place. So the notice stays a kind.
-      if (!silent) _notice = const AppNotice.error(NoticeKind.ruleSetsUpdateFailed);
+      if (!silent) {
+        _notice = const AppNotice.error(NoticeKind.ruleSetsUpdateFailed);
+      }
     } finally {
       _updatingRuleSets = false;
       notifyListeners();
