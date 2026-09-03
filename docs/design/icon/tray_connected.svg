@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tray icon, connected. Rasterized into assets/tray/ by scripts/build-icons.sh.
+
+  The launcher mark without its plate. A tray sits on a panel whose colour
+  belongs to the desktop theme, so the background has to stay transparent — the
+  plate from ic_launcher.svg would draw a black square on a dark panel.
+
+  Same geometry and the same AppPalette values as the launcher: violetSoft
+  #B9A9FF for the ring, mint #22E1A6 for the live segment and the core. The
+  disconnected variant is this file in faint #828B9C throughout, which is what
+  makes the two readable apart at 22px without relying on shape.
+
+  Stroke is heavier than the launcher's (9 against 7) because this is drawn at a
+  fraction of the size: at panel scale a 7-unit stroke thins out to something
+  that reads as grey rather than as a ring.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108"
+     viewBox="0 0 108 108">
+  <g transform="translate(54,54) scale(1.24) translate(-54,-54)"
+     fill="none" stroke-linecap="round">
+    <path d="M40.25,77.82 A27.5,27.5 0 1 1 67.75,77.82"
+          stroke="#B9A9FF" stroke-width="9"/>
+    <path d="M40.25,77.82 A27.5,27.5 0 0 1 30.18,40.25"
+          stroke="#22E1A6" stroke-width="9"/>
+    <circle cx="54" cy="54" r="9.5" fill="#22E1A6"/>
+  </g>
+</svg>

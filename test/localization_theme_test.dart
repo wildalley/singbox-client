@@ -237,7 +237,12 @@ void main() {
         Icons.settings_outlined,
         Icons.home_outlined,
       ]) {
-        await tester.tap(find.byIcon(icon));
+        await tester.tap(
+          find.descendant(
+            of: find.byType(NavigationBar),
+            matching: find.byIcon(icon),
+          ),
+        );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: '$icon in light mode');
       }

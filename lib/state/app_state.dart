@@ -12,11 +12,14 @@ import 'package:flutter/foundation.dart';
 
 import '../data/config_builder.dart';
 import '../data/importer.dart';
+import '../data/ip_lookup.dart';
 import '../data/latency_tester.dart';
 import '../data/rule_set_updater.dart';
 import '../data/rule_sets.dart';
 import '../data/storage.dart';
 import '../models/app_settings.dart';
+import '../models/custom_rule.dart';
+import '../models/log_buffer.dart';
 import '../models/node.dart';
 import '../models/node_sort.dart';
 import '../models/proxy_state.dart';
@@ -40,6 +43,17 @@ enum NoticeKind {
   ruleSetsUpdated,
   ruleSetsUpdateFailed,
   ruleSetsUnavailable,
+
+  /// The three start failures the app works out for itself rather than reading
+  /// off the engine. Each names a fix, so each gets a sentence in the user's
+  /// language where engine text would be passed through untranslated.
+  engineMissing,
+
+  /// [AppNotice.detail] carries the version that was found.
+  engineTooOld,
+
+  /// [AppNotice.detail] carries the binary to grant the capability to.
+  tunUnprivileged,
 
   /// Text that is already final: an engine error or a redacted exception.
   /// Not translatable, so it is passed through as-is.
@@ -89,12 +103,14 @@ class AppState extends ChangeNotifier {
     Importer? importer,
     LatencyTester? latencyTester,
     RuleSetUpdater? ruleSetUpdater,
+    IpLookup? ipLookup,
     String? ruleSetDir,
     Duration? urlTestTimeout,
   })  : _urlTestTimeout = urlTestTimeout ?? _defaultUrlTestTimeout,
         _storage = storage,
         _controller = controller,
         _importer = importer ?? Importer(),
+        _ipLookup = ipLookup ?? IpLookup(),
         _latencyTester = latencyTester ?? const LatencyTester(),
         _ruleSetUpdater = ruleSetUpdater ?? RuleSetUpdater(),
         _ruleSetDir = ruleSetDir {
@@ -104,6 +120,7 @@ class AppState extends ChangeNotifier {
     _selectedNodeId = _storage.readSelectedNodeId();
     _collapsedSources = {..._storage.readCollapsedSources()};
     _nodeSort = _storage.readNodeSort();
+    _customRules = _storage.readCustomRules();
     _proxyState = _controller.currentState;
 
     // Read synchronously so the very first `_buildConfig()` already carries it;
@@ -119,15 +136,22 @@ class AppState extends ChangeNotifier {
       _pushHistory(value);
       notifyListeners();
     });
-    _logSub = _controller.logs.listen(_onLog);
+    _logSub = _controller.logs.listen((entry) {
+      // The buffer drops its own oldest entry at capacity, so there is no
+      // trimming step here.
+      _logs.add(entry);
+      _scheduleLogNotify();
+    });
 
     // Shown in Settings; failure just leaves the row as unknown.
     _controller.coreVersion().then((value) {
       _coreVersion = value;
-      notifyListeners();
+      // Guarded: on the desktop this shells out to `sing-box version`, so a
+      // window closed while it runs disposes the state before it answers.
+      _notifyUnlessDisposed();
     }, onError: (_) {});
 
-    _readRuleSetInstall();
+    _ruleSetInstallRead = _readRuleSetInstall();
   }
 
   /// Stored in the selected-node key to mean "let the engine choose".
@@ -140,11 +164,6 @@ class AppState extends ChangeNotifier {
 
   static const _maxLogs = 500;
 
-  /// Coalesce bursts from the engine into at most ten UI rebuilds per second.
-  /// The native bridge applies a second cap before events reach this layer;
-  /// this timer keeps a busy log stream from rebuilding every widget per line.
-  static const _logNotifyInterval = Duration(milliseconds: 100);
-
   /// 60 samples at roughly one per second — the rolling window the design plan
   /// asks for before any figure is compared against an earlier period.
   static const _historyLength = 60;
@@ -152,6 +171,7 @@ class AppState extends ChangeNotifier {
   final Storage _storage;
   final ProxyController _controller;
   final Importer _importer;
+  final IpLookup _ipLookup;
   final LatencyTester _latencyTester;
   final RuleSetUpdater _ruleSetUpdater;
 
@@ -180,7 +200,26 @@ class AppState extends ChangeNotifier {
 
   var _proxyState = ProxyState.disconnected;
   var _traffic = ProxyTraffic.zero;
-  final _logs = <ProxyLogEntry>[];
+
+  /// The address the outside world last reported back, or null when it has not
+  /// been looked up or the lookup failed.
+  ExitAddress? _exitAddress;
+
+  /// A lookup is in flight. Also the concurrency guard: switching nodes twice in
+  /// a second must not put two requests on the wire.
+  var _checkingExitAddress = false;
+  /// Fixed-capacity, so a burst costs one slot each rather than shifting the
+  /// whole list per line. See [RingBuffer].
+  final _logs = RingBuffer<ProxyLogEntry>(_maxLogs);
+
+  /// The pending coalesced log notification, if one is queued.
+  ///
+  /// The engine emits in bursts — one line per connection at debug level — and
+  /// each line used to notify on its own, so 300 lines rebuilt the app 300 times
+  /// within a frame nobody ever saw. Held rather than fire-and-forget so [dispose]
+  /// can cancel it: a timer that outlives the state notifies a disposed
+  /// ChangeNotifier, and the test framework rightly fails a pending one.
+  Timer? _logNotify;
 
   /// Rolling per-sample history for the charts, oldest first. Lives here rather
   /// than in the home page's State so switching tabs doesn't blank the charts.
@@ -192,7 +231,11 @@ class AppState extends ChangeNotifier {
   StreamSubscription<ProxyState>? _stateSub;
   StreamSubscription<ProxyTraffic>? _trafficSub;
   StreamSubscription<ProxyLogEntry>? _logSub;
-  Timer? _logNotifyTimer;
+
+  /// Set by [dispose]. Anything that resumes after an await checks it: an
+  /// unawaited task started from the connect hook — a rule-set update, an
+  /// address lookup — can still be in flight when the state goes away, and
+  /// notifying a disposed ChangeNotifier throws.
   var _disposed = false;
 
   var _busy = false;
@@ -209,6 +252,9 @@ class AppState extends ChangeNotifier {
   /// tunnel one: `applySettings` reloads a running config, and reordering a list
   /// must never drop the connection.
   late NodeSort _nodeSort;
+
+  /// The user's own routing rules, in match order.
+  late List<CustomRule> _customRules;
 
   /// What the rule-sets on disk are, or null on a platform that has none.
   RuleSetInstall? _ruleSetInstall;
@@ -233,7 +279,14 @@ class AppState extends ChangeNotifier {
   AppSettings get settings => _settings;
   ProxyState get proxyState => _proxyState;
   ProxyTraffic get traffic => _traffic;
-  List<ProxyLogEntry> get logs => List.unmodifiable(_logs);
+  ExitAddress? get exitAddress => _exitAddress;
+  bool get isCheckingExitAddress => _checkingExitAddress;
+  /// The log, oldest first.
+  ///
+  /// Handed out directly rather than copied. [RingBuffer] refuses every mutating
+  /// [List] setter, so this is already read-only — and copying it was the second
+  /// O(n) per line, paid on every build while lines were arriving fastest.
+  List<ProxyLogEntry> get logs => _logs;
 
   /// Chart series, oldest sample first. Copies: the painters diff the old and
   /// new lists, and handing out the same instance would always look unchanged.
@@ -262,6 +315,9 @@ class AppState extends ChangeNotifier {
       _collapsedSources.contains(sourceId);
 
   NodeSort get nodeSort => _nodeSort;
+
+  /// The user's own rules, in the order they are matched.
+  List<CustomRule> get customRules => List.unmodifiable(_customRules);
 
   String? get selectedNodeId => _selectedNodeId;
 
@@ -350,8 +406,8 @@ class AppState extends ChangeNotifier {
   /// have stopped after a failed connection.
   Future<void> clearLogs() async {
     _logs.clear();
-    _logNotifyTimer?.cancel();
-    _logNotifyTimer = null;
+    _logNotify?.cancel();
+    _logNotify = null;
     notifyListeners();
 
     try {
@@ -359,19 +415,6 @@ class AppState extends ChangeNotifier {
     } on Object catch (_) {
       // The visible viewer must remain usable when the native service is gone.
     }
-  }
-
-  void _onLog(ProxyLogEntry entry) {
-    if (_disposed) return;
-    _logs.add(entry);
-    if (_logs.length > _maxLogs) {
-      _logs.removeRange(0, _logs.length - _maxLogs);
-    }
-    if (_logNotifyTimer != null) return;
-    _logNotifyTimer = Timer(_logNotifyInterval, () {
-      _logNotifyTimer = null;
-      if (!_disposed) notifyListeners();
-    });
   }
 
   /// Selects [node]. While connected this switches the live selector outbound
@@ -394,6 +437,11 @@ class AppState extends ChangeNotifier {
     if (!isConnected) return;
     try {
       await _controller.selectOutbound(outboundTag);
+      // The exit moved, so the address on screen is now the previous node's.
+      // Unawaited: the switch is done either way, and a slow echo service must
+      // not make selecting a node feel slow.
+      _exitAddress = null;
+      refreshExitAddress();
     } on Object catch (error) {
       _notify(AppNotice.error(NoticeKind.switchFailed, detail: _short(error)));
     }
@@ -666,7 +714,7 @@ class AppState extends ChangeNotifier {
       _fail(_short(error));
     } finally {
       _testingLatency = false;
-      notifyListeners();
+      _notifyUnlessDisposed();
     }
   }
 
@@ -766,10 +814,73 @@ class AppState extends ChangeNotifier {
         selectedNodeId: selectedNode?.id,
         settings: _settings,
         clashSecret: clashSecret ?? _clashSecret,
+        customRules: _customRules,
         ruleSetDir: _ruleSetDir,
       );
 
   String _renderConfig() => ConfigBuilder.encode(_buildConfig());
+
+  // ------------------------------------------------------------ custom rules
+
+  /// Appends a rule and applies it.
+  ///
+  /// Appended rather than prepended: rules are matched in order, and a user
+  /// adding a rule expects it after the ones already there, not silently ahead
+  /// of them.
+  Future<void> addCustomRule(CustomRule rule) =>
+      _writeCustomRules([..._customRules, rule]);
+
+  /// Replaces the rule with the same id, or does nothing if it is gone.
+  Future<void> updateCustomRule(CustomRule rule) async {
+    final index = _customRules.indexWhere((item) => item.id == rule.id);
+    if (index < 0) return;
+    final next = [..._customRules]..[index] = rule;
+    await _writeCustomRules(next);
+  }
+
+  Future<void> removeCustomRule(String id) => _writeCustomRules(
+        _customRules.where((rule) => rule.id != id).toList(),
+      );
+
+  /// Moves the rule at [from] to [to], because order is behaviour.
+  Future<void> moveCustomRule(int from, int to) async {
+    if (from < 0 || from >= _customRules.length) return;
+    if (to < 0 || to >= _customRules.length || from == to) return;
+    final next = [..._customRules];
+    next.insert(to, next.removeAt(from));
+    await _writeCustomRules(next);
+  }
+
+  /// A fresh rule with an id, ready to be edited. Not persisted until added.
+  ///
+  /// Same id scheme as nodes and subscriptions: a base-36 microsecond stamp,
+  /// which cannot collide within one process.
+  CustomRule newCustomRule() => CustomRule(
+        id: _newId(),
+        matcher: RuleMatcher.domainSuffix,
+        value: '',
+        target: RuleTarget.proxy,
+      );
+
+  /// Persists [rules] and pushes them to a running tunnel.
+  ///
+  /// The reload is the point. Unlike the bundled rule-sets — which the engine
+  /// reads off disk at start, so a download only applies at the next connect —
+  /// route rules are part of the config, and reloading is the only way a rule the
+  /// user just typed takes effect now. It costs the live connections, which is
+  /// the honest price of changing where traffic goes.
+  Future<void> _writeCustomRules(List<CustomRule> rules) async {
+    _customRules = rules;
+    await _storage.writeCustomRules(rules);
+    notifyListeners();
+
+    if (!isConnected) return;
+    try {
+      await _controller.reload(_renderConfig());
+    } on Object catch (error) {
+      _notify(AppNotice.error(NoticeKind.reloadFailed, detail: _short(error)));
+    }
+  }
 
   // --------------------------------------------------------------- rule sets
 
@@ -811,7 +922,7 @@ class AppState extends ChangeNotifier {
       }
     } finally {
       _updatingRuleSets = false;
-      notifyListeners();
+      _notifyUnlessDisposed();
     }
   }
 
@@ -826,6 +937,14 @@ class AppState extends ChangeNotifier {
     return DateTime.now().difference(install.at) > _ruleSetMaxAge;
   }
 
+  /// Completes when the on-disk rule-set record has been read.
+  ///
+  /// Held so the auto-update can wait for it. Without that the decision races the
+  /// read: a connect that arrives first sees a null record, reads it as "never
+  /// installed", and downloads lists that are already on disk — which on a real
+  /// launch is a connect immediately followed by a pointless fetch.
+  Future<void>? _ruleSetInstallRead;
+
   Future<void> _readRuleSetInstall() async {
     final dir = _ruleSetDir;
     if (dir == null) return;
@@ -839,14 +958,91 @@ class AppState extends ChangeNotifier {
 
   // ----------------------------------------------------------------- helpers
 
+  /// Turns an error message into a notice.
+  ///
+  /// Engine output is passed through as-is; the markers the runtime encodes for
+  /// the failures it detected itself become kinds the UI can translate. Public
+  /// because the home page shows the same failure as a stage detail, and one
+  /// decode shared beats two that can drift apart.
+  static AppNotice noticeFor(String message) => switch (EngineProblem.of(message)) {
+        EngineProblem.missing => const AppNotice.error(NoticeKind.engineMissing),
+        EngineProblem.tooOld => AppNotice.error(
+            NoticeKind.engineTooOld,
+            detail: EngineProblem.detailOf(message),
+          ),
+        EngineProblem.unprivileged => AppNotice.error(
+            NoticeKind.tunUnprivileged,
+            detail: EngineProblem.detailOf(message),
+          ),
+        null => AppNotice.passthrough(message),
+      };
+
+  /// Notifies once for however many log lines are already queued.
+  ///
+  /// A zero-duration [Timer], not `scheduleMicrotask`. Stream events are
+  /// delivered as microtasks, so a microtask scheduled from inside a listener
+  /// interleaves with the deliveries still queued behind it — 300 lines produced
+  /// 301 notifications that way, which is exactly what this exists to avoid. A
+  /// timer is a macrotask: it runs only once the microtask queue is empty, by
+  /// which point every line in the burst has landed in the buffer.
+  ///
+  /// Still ahead of the next frame, so the log does not visibly lag the engine.
+  void _scheduleLogNotify() {
+    if (_logNotify != null) return;
+    _logNotify = Timer(Duration.zero, () {
+      _logNotify = null;
+      _notifyUnlessDisposed();
+    });
+  }
+
+  /// [notifyListeners], dropped once [dispose] has run.
+  ///
+  /// For the tail of an async path only. A synchronous notify cannot outlive the
+  /// object and should call the real thing, so a genuine use-after-dispose still
+  /// shows up rather than being quietly swallowed everywhere.
+  void _notifyUnlessDisposed() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
+  /// Looks up the address the outside world sees us at.
+  ///
+  /// Routed through the tunnel whenever it is up, which is the whole point: a
+  /// direct request reports the user's own line on Android and in desktop
+  /// system-proxy mode, so it would claim the tunnel was doing nothing when it
+  /// was working. See `ip_lookup.dart`.
+  ///
+  /// Overlapping calls are dropped rather than queued. Switching nodes a few
+  /// times in a row should leave one request on the wire, not one per switch.
+  Future<void> refreshExitAddress() async {
+    if (_checkingExitAddress) return;
+    _checkingExitAddress = true;
+    notifyListeners();
+    try {
+      final address = await _ipLookup.fetch(viaLocalProxy: isConnected);
+      // A failed lookup clears the reading rather than leaving the last one on
+      // screen: a stale address beside a tunnel that has since moved is worse
+      // than admitting the check did not answer.
+      _exitAddress = address;
+    } finally {
+      _checkingExitAddress = false;
+      _notifyUnlessDisposed();
+    }
+  }
+
   void _onProxyState(ProxyState state) {
     final wasConnected = _proxyState.isConnected;
     _proxyState = state;
     if (state.stage == ProxyStage.error && state.message != null) {
-      _notice = AppNotice.passthrough(state.message!);
+      _notice = noticeFor(state.message!);
     }
     // Traffic counters are meaningless once the tunnel is down.
     if (wasConnected && !state.isConnected) {
+      // Cleared rather than re-checked. The address on screen is the tunnel's
+      // exit, and once the tunnel is gone the honest reading is none — going out
+      // to ask would hand a third party the user's real address to answer a
+      // question they did not ask.
+      _exitAddress = null;
       _traffic = ProxyTraffic.zero;
       _downlinkHistory.clear();
       _uplinkHistory.clear();
@@ -860,14 +1056,21 @@ class AppState extends ChangeNotifier {
     if (!wasConnected && state.isConnected) {
       _maybeAutoUpdateRuleSets();
       _maybeAutoRefreshSubscriptions();
+      // Unawaited like the two above: this is a readout, and nothing about
+      // connecting should wait on a third party answering.
+      refreshExitAddress();
     }
     notifyListeners();
   }
 
-  void _maybeAutoUpdateRuleSets() {
-    if (_autoUpdateTried || !_ruleSetsAreStale) return;
+  Future<void> _maybeAutoUpdateRuleSets() async {
+    if (_autoUpdateTried) return;
     _autoUpdateTried = true;
-    // Unawaited on purpose: this must not hold up anything the connect does.
+    // Waits for the disk record before judging staleness, not for the download.
+    // Nothing about the connect is held up either way — the caller does not await
+    // this — but the answer has to be based on what is actually installed.
+    await _ruleSetInstallRead;
+    if (!_ruleSetsAreStale) return;
     updateRuleSets(silent: true);
   }
 
@@ -906,7 +1109,7 @@ class AppState extends ChangeNotifier {
 
     push(_downlinkHistory, value.downlink);
     push(_uplinkHistory, value.uplink);
-    push(_connectionHistory, value.connectionsOut);
+    push(_connectionHistory, value.connections);
     push(_memoryHistory, value.memory);
   }
 
@@ -995,16 +1198,35 @@ class AppState extends ChangeNotifier {
     ).join();
   }
 
+  /// Tears everything down in an order that can be waited on, then disposes.
+  ///
+  /// The quit path. [dispose] alone cannot put the desktop's proxy settings
+  /// back — see [ProxyController.shutdown] — so quitting through it while
+  /// connected in system-proxy mode leaves the whole machine offline.
+  Future<void> shutdown() async {
+    _disposed = true;
+    _logNotify?.cancel();
+    await _stateSub?.cancel();
+    await _trafficSub?.cancel();
+    await _logSub?.cancel();
+    // The one step that has to be awaited rather than fired.
+    await _controller.shutdown();
+    _importer.dispose();
+    _ipLookup.dispose();
+    _ruleSetUpdater.dispose();
+    super.dispose();
+  }
+
   @override
   void dispose() {
     _disposed = true;
-    _logNotifyTimer?.cancel();
-    _logNotifyTimer = null;
+    _logNotify?.cancel();
     _stateSub?.cancel();
     _trafficSub?.cancel();
     _logSub?.cancel();
     _controller.dispose();
     _importer.dispose();
+    _ipLookup.dispose();
     _ruleSetUpdater.dispose();
     super.dispose();
   }

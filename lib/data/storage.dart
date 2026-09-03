@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
+import '../models/custom_rule.dart';
 import '../models/node.dart';
 import '../models/node_sort.dart';
 import '../models/subscription.dart';
@@ -25,6 +26,7 @@ class Storage {
   static const _kCollapsedSources = 'collapsed_sources.v1';
   static const _kClashSecret = 'clash_secret.v1';
   static const _kNodeSort = 'node_sort.v1';
+  static const _kCustomRules = 'custom_rules.v1';
 
   static Future<Storage> open() async =>
       Storage(await SharedPreferences.getInstance());
@@ -46,6 +48,34 @@ class Storage {
   Future<void> writeNodes(List<ProxyNode> nodes) => _prefs.setString(
         _kNodes,
         jsonEncode(nodes.map((node) => node.toJson()).toList()),
+      );
+
+  /// The user's own routing rules, in the order they will be matched.
+  ///
+  /// Order is data here, not presentation: sing-box takes the first rule that
+  /// matches, so the list order decides the behaviour and a read that reordered
+  /// them would change what the tunnel does.
+  List<CustomRule> readCustomRules() {
+    final raw = _prefs.getString(_kCustomRules);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list
+          .map((item) => CustomRule.fromJson(Map<String, dynamic>.from(item)))
+          // A record with no id cannot be edited or removed through the UI,
+          // which keys on it. Dropping it beats showing a row that ignores every
+          // button on it.
+          .where((rule) => rule.id.isNotEmpty)
+          .toList();
+    } on Object {
+      // Corrupt payload: start clean rather than blocking app start.
+      return const [];
+    }
+  }
+
+  Future<void> writeCustomRules(List<CustomRule> rules) => _prefs.setString(
+        _kCustomRules,
+        jsonEncode(rules.map((rule) => rule.toJson()).toList()),
       );
 
   List<Subscription> readSubscriptions() {

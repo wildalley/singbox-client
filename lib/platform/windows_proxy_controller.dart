@@ -246,6 +246,27 @@ class WindowsProxyController implements ProxyController {
   }
 
   @override
+  Future<void> shutdown() async {
+    // Order matters. Stopping first lets sing-box close its inbounds and flush
+    // its cache, and the _stopInternal inside it is what puts the WinINet proxy
+    // settings back — the step dispose can start but not wait for.
+    if (_process != null) {
+      try {
+        await _stopInternal(emitState: false);
+      } on Object {
+        // Quitting must not hang on a stubborn engine. dispose below still
+        // kills it, the Job Object reaps whatever survives that, and the
+        // restore on the next launch is the backstop for the settings.
+      }
+    } else {
+      // No engine of ours running, but an earlier unclean exit may still have
+      // left WinINet pointed at that port. Cheap to be sure.
+      await _restoreSystemProxy();
+    }
+    dispose();
+  }
+
+  @override
   void dispose() {
     if (_disposed) return;
     _disposed = true;

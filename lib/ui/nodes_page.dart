@@ -70,7 +70,10 @@ class _NodesPageState extends State<NodesPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PageBody(state: widget.state, builder: _build);
+
+  Widget _build(BuildContext context) {
     final l10n = L10n.of(context);
     final palette = context.palette;
     final state = widget.state;
@@ -259,7 +262,11 @@ class _NodesPageState extends State<NodesPage> {
             ),
             if (expanded(_manualSource))
               for (final node in grouped[null]!)
-                _NodeRow(state: state, node: node),
+                // Keyed by node, not left to match on position. A reorder has to
+                // move the elements — and with them the slide state that knows
+                // where each row came from — rather than sliding new data
+                // through states that stayed put.
+                _NodeRow(key: ValueKey(node.id), state: state, node: node),
             const SizedBox(height: 22),
           ],
           if (nodes.isEmpty)
@@ -308,9 +315,8 @@ class _ChoiceChipCell extends StatelessWidget {
         backgroundColor: palette.surface,
         selectedColor: palette.violet.withValues(alpha: .22),
         side: BorderSide(
-          color: selected
-              ? palette.violet.withValues(alpha: .55)
-              : palette.border,
+          color:
+              selected ? palette.violet.withValues(alpha: .55) : palette.border,
         ),
         labelStyle: TextStyle(
           color: selected ? palette.violetSoft : palette.muted,
@@ -428,7 +434,8 @@ class _SubscriptionSection extends StatelessWidget {
         ),
         if (!collapsed) ...[
           const SizedBox(height: Gap.md),
-          for (final node in nodes) _NodeRow(state: state, node: node),
+          for (final node in nodes)
+            _NodeRow(key: ValueKey(node.id), state: state, node: node),
         ],
         const SizedBox(height: 22),
       ],
@@ -438,7 +445,8 @@ class _SubscriptionSection extends StatelessWidget {
   static String _subtitle(L10n l10n, Subscription subscription) {
     final parts = <String>[l10n.nodesCountLabel(subscription.nodeCount)];
     if (subscription.updatedAt != null) {
-      parts.add(l10n.nodesUpdatedAgo(relativeTime(l10n, subscription.updatedAt!)));
+      parts.add(
+          l10n.nodesUpdatedAgo(relativeTime(l10n, subscription.updatedAt!)));
     }
     if (subscription.expiresAt != null) {
       final days = subscription.expiresAt!.difference(clockNow()).inDays;
@@ -517,73 +525,56 @@ class _AutoRow extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: state.selectAuto,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          child: AnimatedContainer(
-            duration: Motion.fast,
-            curve: Motion.curve,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: selected
-                  ? palette.violet.withValues(alpha: .10)
-                  : palette.surface,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(
-                color: selected
-                    ? palette.violet.withValues(alpha: .65)
-                    : palette.border,
+      child: Panel(
+        onTap: state.selectAuto,
+        selected: selected,
+        accent: palette.violet,
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: tintFill(palette.violetSoft),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Icon(
+                Icons.bolt_rounded,
+                color: palette.violetSoft,
+                size: 19,
               ),
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: tintFill(palette.violetSoft),
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
+            const SizedBox(width: Gap.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.nodesAuto,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
                   ),
-                  child: Icon(
-                    Icons.bolt_rounded,
-                    color: palette.violetSoft,
-                    size: 19,
+                  const SizedBox(height: 5),
+                  Text(
+                    l10n.nodesAutoBody,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                ),
-                const SizedBox(width: Gap.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.nodesAuto,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        l10n.nodesAutoBody,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                if (selected) ...[
-                  const SizedBox(width: Gap.sm),
-                  Icon(Icons.check_rounded, size: 18, color: palette.violetSoft),
                 ],
-              ],
+              ),
             ),
-          ),
+            if (selected) ...[
+              const SizedBox(width: Gap.sm),
+              Icon(Icons.check_rounded, size: 18, color: palette.violetSoft),
+            ],
+          ],
         ),
       ),
     );
@@ -591,7 +582,7 @@ class _AutoRow extends StatelessWidget {
 }
 
 class _NodeRow extends StatelessWidget {
-  const _NodeRow({required this.state, required this.node});
+  const _NodeRow({super.key, required this.state, required this.node});
 
   final AppState state;
   final ProxyNode node;
@@ -604,111 +595,129 @@ class _NodeRow extends StatelessWidget {
     final color = latencyColor(palette, node.latencyMs);
     final region = node.regionCode;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
+    // The list re-sorts under the user when a latency sweep lands, so the row
+    // slides from its old place rather than appearing in its new one.
+    return ReorderSlide(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 9),
+        child: Panel(
           onTap: () => state.selectNode(node),
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          child: AnimatedContainer(
-            duration: Motion.fast,
-            curve: Motion.curve,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: selected
-                  ? palette.violet.withValues(alpha: .10)
-                  : palette.surface,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(
-                color: selected
-                    ? palette.violet.withValues(alpha: .65)
-                    : palette.border,
+        selected: selected,
+        accent: palette.violet,
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            // The region code replaces the generic server icon when the name
+            // gives one away; nodes whose region we cannot read keep the icon
+            // rather than showing a guess.
+            AnimatedContainer(
+              duration: motionOf(context, Motion.normal),
+              curve: Motion.curve,
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: tintFill(color),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-            ),
-            child: Row(
-              children: [
-                // The region code replaces the generic server icon when the name
-                // gives one away; nodes whose region we cannot read keep the
-                // icon rather than showing a guess.
-                Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: tintFill(color),
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                  ),
-                  child: region == null
-                      ? Icon(Icons.dns_outlined, color: color, size: 18)
-                      : Text(
-                          region,
-                          style: monoStyle(
-                            size: 13,
-                            color: color,
-                            weight: FontWeight.w700,
-                          ),
-                        ),
-                ),
-                const SizedBox(width: Gap.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        node.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
+              child: region == null
+                  ? Icon(Icons.dns_outlined, color: color, size: 18)
+                  : Text(
+                      region,
+                      style: monoStyle(
+                        size: 13,
+                        color: color,
+                        weight: FontWeight.w700,
                       ),
-                      const SizedBox(height: 5),
-                      Row(
-                        children: [
-                          _ProtocolTag(label: node.protocol.label),
-                          const SizedBox(width: Gap.sm),
-                          Expanded(
-                            child: Text(
-                              node.server,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: monoStyle(size: 10, color: palette.faint),
-                            ),
-                          ),
-                        ],
+                    ),
+            ),
+            const SizedBox(width: Gap.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    node.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    children: [
+                      _ProtocolTag(label: node.protocol.label),
+                      const SizedBox(width: Gap.sm),
+                      Expanded(
+                        child: Text(
+                          node.server,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: monoStyle(size: 10, color: palette.faint),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: Gap.sm),
-                Text(
-                  switch (node.latencyMs) {
-                    null => l10n.latencyUnknown,
-                    < 0 => l10n.latencyFail,
-                    final value => '$value',
-                  },
-                  style: monoStyle(color: color, weight: FontWeight.w600),
-                ),
-                if (node.isTested && !node.isUnreachable)
-                  Text(' ms', style: monoStyle(size: 9, color: color)),
-                const SizedBox(width: Gap.xs),
-                IconButton(
-                  onPressed: () => state.toggleFavorite(node.id),
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    node.favorite
-                        ? Icons.star_rounded
-                        : Icons.star_border_rounded,
-                    size: 19,
-                    color: node.favorite ? palette.amber : palette.faint,
-                  ),
-                ),
-                if (selected)
-                  Icon(Icons.check_circle, color: palette.violetSoft, size: 18),
-              ],
+                ],
+              ),
             ),
+            const SizedBox(width: Gap.sm),
+            // A sweep turns every reading at once. Fading the colour instead of
+            // cutting it keeps a screen of rows from flickering as a block.
+            AnimatedDefaultTextStyle(
+              duration: motionOf(context, Motion.normal),
+              curve: Motion.curve,
+              // Merged onto the ambient style, not handed over whole: this
+              // widget replaces the subtree's default where a style passed to a
+              // Text merges into it, and dropping the inherited line height
+              // moves the reading a couple of pixels.
+              style: DefaultTextStyle.of(context).style.merge(
+                    monoStyle(color: color, weight: FontWeight.w600),
+                  ),
+              child: Text(
+                switch (node.latencyMs) {
+                  null => l10n.latencyUnknown,
+                  < 0 => l10n.latencyFail,
+                  final value => '$value',
+                },
+              ),
+            ),
+            if (node.isTested && !node.isUnreachable)
+              AnimatedDefaultTextStyle(
+                duration: motionOf(context, Motion.normal),
+                curve: Motion.curve,
+                style: DefaultTextStyle.of(context)
+                    .style
+                    .merge(monoStyle(size: 9, color: color)),
+                child: const Text(' ms'),
+              ),
+            const SizedBox(width: Gap.xs),
+            IconButton(
+              onPressed: () => state.toggleFavorite(node.id),
+              visualDensity: VisualDensity.compact,
+              icon: Icon(
+                node.favorite ? Icons.star_rounded : Icons.star_border_rounded,
+                size: 19,
+                color: node.favorite ? palette.amber : palette.faint,
+              ),
+            ),
+            // Eases the width open instead of reserving a slot on every row:
+            // at rest this is exactly the old layout — the mark on the selected
+            // row, nothing on the others — and only the change is animated.
+            AnimatedSize(
+              duration: motionOf(context, Motion.fast),
+              curve: Motion.curve,
+              child: selected
+                  ? Icon(
+                      Icons.check_circle,
+                      color: palette.violetSoft,
+                      size: 18,
+                    )
+                  : const SizedBox.shrink(),
+            ),
+            ],
           ),
         ),
       ),

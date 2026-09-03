@@ -74,6 +74,20 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Let plugin code use APIs that have since been deprecated.
+#
+# APPLY_STANDARD_SETTINGS above turns every warning into an error, and plugins
+# inherit it — so one deprecation inside a dependency fails the whole build.
+# tray_manager calls app_indicator_new, which libayatana-appindicator has
+# deprecated; there is nothing this project can do about that from here.
+#
+# Scoped two ways rather than relaxing the function itself: only the plugin
+# targets, and only this one warning class. The runner keeps -Wall -Werror in
+# full, so our own code still cannot introduce a deprecation.
+foreach(plugin ${FLUTTER_PLUGIN_LIST})
+  target_compile_options(${plugin}_plugin PRIVATE -Wno-deprecated-declarations)
+endforeach(plugin)
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build

@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/app_settings.dart';
+import '../models/custom_rule.dart';
 import '../models/node.dart';
 import 'rule_sets.dart';
 
@@ -22,20 +23,24 @@ class ConfigTags {
 class ConfigBuilder {
   const ConfigBuilder._();
 
-  /// Local Clash API port. Nothing in the app talks to it — libbox reaches the
-  /// runtime over its own command socket — but the listener has to exist for the
-  /// clash-mode rules and the traffic figures libbox reads from it, so it is
-  /// bound to loopback and gated behind a secret rather than switched off.
+  /// Local Clash API port, bound to loopback and gated behind a secret.
+  ///
+  /// On Android nothing in the app talks to it — libbox reaches the runtime over
+  /// its own command socket — but the listener still has to exist for the
+  /// clash-mode rules and the traffic figures libbox reads from it. On Linux it
+  /// is the only control channel there is: the supervised `sing-box` has no
+  /// command socket, so node switching, URL tests, traffic, and memory all go
+  /// through this port.
   static const clashApiPort = 9291;
 
   /// Loopback HTTP/SOCKS inbound, on 127.0.0.1 only.
   ///
-  /// Two consumers: `systemProxy` advertises this address to Android (and the
-  /// Windows adapter mirrors it into WinINet), while the in-app rule-set update
-  /// sends its download through it. The second one is why the inbound is
-  /// unconditional — the app's own package is excluded from the tunnel, so
-  /// this is the only way anything the app fetches can leave through the
-  /// selected node.
+  /// Three consumers: `systemProxy` advertises this address to Android, the
+  /// in-app rule-set update sends its download through it, and desktop
+  /// system-proxy mode points GNOME/KDE — or WinINet on Windows — at it. The
+  /// second one is why the inbound is unconditional even in tun mode — the
+  /// app's own package is excluded from the tunnel, so this is the only way
+  /// anything the app fetches can leave through the selected node.
   static const localProxyPort = 2080;
 
   /// Builds the full configuration.
@@ -52,13 +57,26 @@ class ConfigBuilder {
   /// defaulted: on Android every app on the device can reach 127.0.0.1, so an
   /// unauthenticated listener lets any of them switch the user's outbound and
   /// read their connection list. Nothing may render this config without one.
+  ///
+  /// [tunOnly] overrides the platform check that ignores
+  /// [AppSettings.proxyMode] on Android. For tests only; production leaves it
+  /// null.
+  /// [customRules] are the user's own rules, rendered above the bundled
+  /// rule-sets so a specific answer wins over a general one — see [_route].
+  /// Invalid and disabled entries are skipped here rather than at the call site.
   static Map<String, dynamic> build({
     required List<ProxyNode> nodes,
     required String? selectedNodeId,
     required AppSettings settings,
     required String clashSecret,
+    List<CustomRule> customRules = const [],
     String? ruleSetDir,
+    bool? tunOnly,
   }) {
+    // Android has one way in — VpnService hands over a tun and there is no
+    // settings row to choose otherwise — so the stored mode does not apply
+    // there. Injectable because the tests run on Linux and need both renders.
+    final alwaysTun = tunOnly ?? Platform.isAndroid;
     final nodeTags = <String, String>{};
     final outbounds = <Map<String, dynamic>>[];
 
@@ -107,9 +125,9 @@ class ConfigBuilder {
         'timestamp': false,
       },
       'dns': _dns(settings),
-      'inbounds': _inbounds(settings),
+      'inbounds': _inbounds(settings, alwaysTun: alwaysTun),
       'outbounds': outbounds,
-      'route': _route(settings, ruleSetDir),
+      'route': _route(settings, ruleSetDir, customRules),
       'experimental': {
         'clash_api': {
           'external_controller': '127.0.0.1:$clashApiPort',
@@ -217,32 +235,42 @@ class ConfigBuilder {
     };
   }
 
-  static List<Map<String, dynamic>> _inbounds(AppSettings settings) {
+  static List<Map<String, dynamic>> _inbounds(
+    AppSettings settings, {
+    required bool alwaysTun,
+  }) {
+    final tun = alwaysTun || settings.proxyMode == ProxyMode.tun;
     return [
-      {
-        'type': 'tun',
-        'tag': 'tun-in',
-        'address': [
-          '172.19.0.1/30',
-          if (settings.ipv6) 'fdfe:dcba:9876::1/126',
-        ],
-        'mtu': settings.mtu,
-        'auto_route': true,
-        'strict_route': settings.strictRoute,
-        'stack': settings.tunStack.tag,
-        'endpoint_independent_nat': true,
-        if (settings.systemProxy)
-          'platform': {
-            'http_proxy': {
-              'enabled': true,
-              'server': '127.0.0.1',
-              // The mixed inbound below is what makes this address answer; an
-              // advertised proxy with nothing behind it breaks every app that
-              // honours the system setting.
-              'server_port': localProxyPort,
+      // Omitted entirely in system-proxy mode: a tun inbound is the one part of
+      // this config that needs a privileged interface, and nothing else refers
+      // to it — no route rule matches an inbound tag, `auto_detect_interface`
+      // is inert without one, and the FakeIP ranges are only ever reached
+      // through a tun's DNS hijack, so they sit unused rather than misroute.
+      if (tun)
+        {
+          'type': 'tun',
+          'tag': 'tun-in',
+          'address': [
+            '172.19.0.1/30',
+            if (settings.ipv6) 'fdfe:dcba:9876::1/126',
+          ],
+          'mtu': settings.mtu,
+          'auto_route': true,
+          'strict_route': settings.strictRoute,
+          'stack': settings.tunStack.tag,
+          'endpoint_independent_nat': true,
+          if (settings.systemProxy)
+            'platform': {
+              'http_proxy': {
+                'enabled': true,
+                'server': '127.0.0.1',
+                // The mixed inbound below is what makes this address answer; an
+                // advertised proxy with nothing behind it breaks every app that
+                // honours the system setting.
+                'server_port': localProxyPort,
+              },
             },
-          },
-      },
+        },
       // Loopback proxy for traffic that cannot use the tun: the app itself is
       // excluded from the VPN, so its own requests (the rule-set update) reach
       // the tunnel only through here. Bound to 127.0.0.1 deliberately — the
@@ -256,7 +284,11 @@ class ConfigBuilder {
     ];
   }
 
-  static Map<String, dynamic> _route(AppSettings settings, String? ruleSetDir) {
+  static Map<String, dynamic> _route(
+    AppSettings settings,
+    String? ruleSetDir,
+    List<CustomRule> customRules,
+  ) {
     final rules = <Map<String, dynamic>>[
       // Sniff first so domain rules can match on TLS/HTTP hostnames.
       {'action': 'sniff'},
@@ -273,6 +305,48 @@ class ConfigBuilder {
       _ruleSet('geosite-cn', ruleSetDir),
       _ruleSet('geoip-cn', ruleSetDir),
     ];
+
+    // The user's own rules, above the bundled lists and below the overrides.
+    //
+    // sing-box takes the first rule that matches, so this position is the whole
+    // behaviour. Above the ad and CN lists, because a rule someone typed for one
+    // domain is a more specific answer than a list of millions and should beat
+    // it. Below the clash-mode rules and the LAN bypass, because those are not
+    // opinions about a destination: clash-mode is a global override the user
+    // just flipped, and the LAN bypass keeps local traffic off the tunnel.
+    //
+    // One entry per rule, in the user's order, rather than merging rules that
+    // share a matcher and target. Merging would be a smaller config, but it
+    // would also reorder them — and first-match-wins means the order on screen
+    // has to be the order in the config.
+    rules.addAll(customRules.where((rule) => rule.enabled && rule.isValid).map(
+          (rule) => {
+            // Ports are uint16 in sing-box's schema, every other matcher is a
+            // string list. Rendering a port as `["443"]` fails at *decode* —
+            // "cannot unmarshal string into Go value of type uint16" — so the
+            // whole tunnel refuses to start over one quoted number, with nothing
+            // naming the rule that did it. Verified against sing-box 1.13.
+            //
+            // The parse cannot fail because the `where` above dropped anything
+            // [CustomRule.isValid] rejected, and a port that does not parse is
+            // exactly what it rejects. That filter is load-bearing, not tidiness.
+            rule.matcher.field: [
+              if (rule.matcher == RuleMatcher.port)
+                int.parse(rule.value)
+              else
+                rule.value,
+            ],
+            switch (rule.target) {
+              // reject is an action, not an outbound; the other two name a tag.
+              RuleTarget.block => 'action',
+              _ => 'outbound',
+            }: switch (rule.target) {
+              RuleTarget.proxy => ConfigTags.proxy,
+              RuleTarget.direct => ConfigTags.direct,
+              RuleTarget.block => 'reject',
+            },
+          },
+        ));
 
     if (settings.blockAds) {
       ruleSets.add(_ruleSet('geosite-ads', ruleSetDir));

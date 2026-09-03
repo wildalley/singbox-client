@@ -71,12 +71,18 @@ jobs:
 
       # clang/cmake/ninja/gtk: Flutter's Linux desktop toolchain. librsvg2-bin
       # gives scripts/package.sh rsvg-convert for the icon set.
+      #
+      # libayatana-appindicator3-dev is the tray. tray_manager's CMakeLists ends
+      # in FATAL_ERROR when neither ayatana-appindicator3-0.1 nor
+      # appindicator3-0.1 is found, so without it the Linux bundle does not build
+      # at all — it is a build dependency, not a nicety.
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev librsvg2-bin
+            libgtk-3-dev liblzma-dev librsvg2-bin \
+            libayatana-appindicator3-dev
 
       # JDK 17 exactly: scripts/build-libbox.sh rejects any other release,
       # because gomobile's generated Java targets it.
@@ -218,10 +224,14 @@ jobs:
     container: archlinux:base-devel
     steps:
       # -Syu, not -Sy: a partial upgrade is how an Arch container breaks.
+      # libayatana-appindicator carries the pkg-config file tray_manager looks
+      # for; on Arch the headers are in the same package as the library, so this
+      # one name covers both building and running.
       - name: Install the toolchain
         run: |
           pacman -Syu --needed --noconfirm \
-            git curl unzip which xz clang cmake ninja pkgconf gtk3 librsvg
+            git curl unzip which xz clang cmake ninja pkgconf gtk3 librsvg \
+            libayatana-appindicator
 
       # A container runs as root, and neither makepkg nor flutter will.
       - name: Add an unprivileged build user

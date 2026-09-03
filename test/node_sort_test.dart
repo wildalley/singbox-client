@@ -151,7 +151,11 @@ void main() {
       // running config, and a sort order is not worth the connections.
       final built = await buildState(nodes: [node('a', 'Alpha')]);
       await built.state.setNodeSort(NodeSort.latency);
+      // Both lists: nothing started, and nothing was handed new routing either.
+      // Before the fake kept them apart, reload landed in startedConfigs and
+      // this assertion could not tell the two apart.
       expect(built.controller.startedConfigs, isEmpty);
+      expect(built.controller.reloadedConfigs, isEmpty);
       expect(built.controller.stopCount, 0);
     });
   });

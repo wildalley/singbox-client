@@ -88,6 +88,14 @@ class FakeProxyController implements ProxyController {
     emit(ProxyState.disconnected);
   }
 
+  /// Configs handed to [reload], kept apart from [startedConfigs].
+  ///
+  /// Separate lists because the two mean different things: a start is a tunnel
+  /// coming up, a reload is a running tunnel being handed new routing and losing
+  /// its connections. A test asserting "this must not reload" cannot say so
+  /// against a list that also counts starts.
+  final reloadedConfigs = <String>[];
+
   @override
   Future<void> clearLogs() async {
     clearLogsCount++;
@@ -95,7 +103,7 @@ class FakeProxyController implements ProxyController {
 
   @override
   Future<void> reload(String configJson) async =>
-      startedConfigs.add(configJson);
+      reloadedConfigs.add(configJson);
 
   @override
   Future<void> selectOutbound(String outboundTag) async =>
@@ -116,6 +124,17 @@ class FakeProxyController implements ProxyController {
     _traffic.close();
     _logs.close();
     _groups.close();
+  }
+
+  /// Records that the app asked for an orderly teardown, which is the whole
+  /// point of the method: on the desktop it is what puts the proxy settings
+  /// back, and a quit path that skips it leaves the machine offline.
+  var didShutdown = false;
+
+  @override
+  Future<void> shutdown() async {
+    didShutdown = true;
+    dispose();
   }
 }
 
@@ -192,8 +211,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(harness.controller.startedConfigs, hasLength(1));
-    // The config the UI sends must be the real thing, not a placeholder.
-    expect(harness.controller.startedConfigs.single, contains('"type": "tun"'));
+    // The config the UI sends must be the real thing, not a placeholder. The
+    // mixed inbound rather than the tun: the default mode is system proxy, which
+    // renders no tun, and this is the inbound both modes always carry.
+    expect(harness.controller.startedConfigs.single, contains('"type": "mixed"'));
     expect(harness.controller.startedConfigs.single, contains('a.example.com'));
     expect(find.text('Connected'), findsWidgets);
     expect(find.text('Disconnect'), findsOneWidget);

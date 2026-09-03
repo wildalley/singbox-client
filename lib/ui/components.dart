@@ -10,7 +10,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'chart_painting.dart';
 import 'theme.dart';
+import 'widgets.dart' show AnimatedCount;
 
 /// [Panel] with a gradient wash and a lit edge.
 ///
@@ -72,6 +74,7 @@ class MetricCard extends StatelessWidget {
     super.key,
     required this.label,
     required this.value,
+    required this.format,
     required this.icon,
     required this.accent,
     this.caption,
@@ -79,7 +82,14 @@ class MetricCard extends StatelessWidget {
   });
 
   final String label;
-  final String value;
+
+  /// The reading itself, as a number so it can be tweened. [format] turns it
+  /// into the text that is drawn.
+  final int value;
+
+  /// Renders [value]. Cards with nothing to report yet — a rate while
+  /// disconnected — return a placeholder from here and ignore the argument.
+  final String Function(int value) format;
 
   /// Secondary line under the value: a rate, a unit, a share.
   final String? caption;
@@ -128,10 +138,9 @@ class MetricCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: Gap.md),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          AnimatedCount(
+            value: value,
+            format: format,
             style: monoStyle(
                 size: 22, weight: FontWeight.w600, color: palette.text),
           ),
@@ -350,18 +359,28 @@ class MiniBars extends StatelessWidget {
       height: height,
       width: double.infinity,
       child: CustomPaint(
-        painter: _MiniBarsPainter(recent, color, context.palette.surface3),
+        painter: _MiniBarsPainter(
+          recent,
+          color,
+          context.palette.surface3,
+          MediaQuery.of(context).devicePixelRatio,
+        ),
       ),
     );
   }
 }
 
 class _MiniBarsPainter extends CustomPainter {
-  _MiniBarsPainter(this.values, this.color, this.emptyColor);
+  _MiniBarsPainter(this.values, this.color, this.emptyColor, this.dpr);
 
   final List<int> values;
   final Color color;
   final Color emptyColor;
+
+  /// Device pixel ratio, so bar edges are sharp rather than half-shaded. With
+  /// twenty-odd bars across a narrow card, every edge landing mid-pixel is what
+  /// turns the strip into a grey wash.
+  final double dpr;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -377,10 +396,15 @@ class _MiniBarsPainter extends CustomPainter {
       // Floor at 2px: a zero sample should still show a tick, so gaps in the
       // series don't look like missing data.
       final barHeight = math.max(2.0, ratio * size.height);
-      final left = i * slot + (slot - barWidth) / 2;
+      // Both edges snapped, then the width taken from the difference: rounding
+      // left and width separately lets a bar come out a pixel wider than its
+      // neighbour, and the strip stops looking evenly spaced.
+      final left = snapEdge(i * slot + (slot - barWidth) / 2, dpr);
+      final right = snapEdge(left + barWidth, dpr);
+      final top = snapEdge(size.height - barHeight, dpr);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(left, size.height - barHeight, barWidth, barHeight),
+          Rect.fromLTRB(left, top, right, size.height),
           const Radius.circular(1.5),
         ),
         Paint()
@@ -395,6 +419,7 @@ class _MiniBarsPainter extends CustomPainter {
   bool shouldRepaint(covariant _MiniBarsPainter oldDelegate) =>
       oldDelegate.color != color ||
       oldDelegate.emptyColor != emptyColor ||
+      oldDelegate.dpr != dpr ||
       !_sameValues(oldDelegate.values, values);
 
   static bool _sameValues(List<int> a, List<int> b) {
@@ -410,35 +435,113 @@ class _MiniBarsPainter extends CustomPainter {
 ///
 /// Drawn rather than shipped as a bitmap — see the design note in
 /// `docs/design/synapse-v4.md` §3. Alphas are deliberately near the floor of
-/// what renders: this should register as texture, not as a visible grid.
-class ConsoleBackground extends StatelessWidget {
-  const ConsoleBackground({super.key, this.child, this.accent});
+/// what renders: this should register as texture, not as a visible grid. The
+/// optional signal field belongs only on a live connection surface, keeping the
+/// rest of the app calm while still giving the dashboard the presence of the
+/// reference console.
+class ConsoleBackground extends StatefulWidget {
+  const ConsoleBackground({
+    super.key,
+    this.child,
+    this.accent,
+    this.animate = false,
+    this.showSignals = false,
+  });
 
   final Widget? child;
 
-  /// Tint for the vignette. Defaults to the brand violet.
+  /// Tint for the vignette and the optional signal field. Defaults to violet.
   final Color? accent;
+
+  /// Whether the signal field should move. It automatically pauses for reduced
+  /// motion and while this subtree is not ticker-enabled.
+  final bool animate;
+
+  /// Draws the low-contrast node-and-packet field behind a live surface.
+  final bool showSignals;
+
+  @override
+  State<ConsoleBackground> createState() => _ConsoleBackgroundState();
+}
+
+class _ConsoleBackgroundState extends State<ConsoleBackground>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _signalController = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 12),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncAnimation();
+  }
+
+  @override
+  void didUpdateWidget(covariant ConsoleBackground oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animate != widget.animate ||
+        oldWidget.showSignals != widget.showSignals) {
+      _syncAnimation();
+    }
+  }
+
+  void _syncAnimation() {
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final canAnimate = widget.animate &&
+        widget.showSignals &&
+        !reduceMotion &&
+        TickerMode.valuesOf(context).enabled;
+    if (canAnimate) {
+      if (!_signalController.isAnimating) _signalController.repeat();
+    } else {
+      _signalController.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _signalController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return CustomPaint(
-      painter: _ConsolePainter(
-        line: palette.text.withValues(alpha: dark ? .035 : .045),
-        glowColour:
-            (accent ?? palette.violet).withValues(alpha: dark ? .10 : .05),
+    final accent = widget.accent ?? palette.violet;
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _ConsolePainter(
+          line: palette.text.withValues(alpha: dark ? .035 : .045),
+          glowColour: accent.withValues(alpha: dark ? .10 : .05),
+          signalColour: accent,
+          dark: dark,
+          phase: widget.showSignals ? _signalController : null,
+          showSignals: widget.showSignals,
+        ),
+        child: widget.child,
       ),
-      child: child,
     );
   }
 }
 
 class _ConsolePainter extends CustomPainter {
-  _ConsolePainter({required this.line, required this.glowColour});
+  _ConsolePainter({
+    required this.line,
+    required this.glowColour,
+    required this.signalColour,
+    required this.dark,
+    required this.phase,
+    required this.showSignals,
+  }) : super(repaint: phase);
 
   final Color line;
   final Color glowColour;
+  final Color signalColour;
+  final bool dark;
+  final Animation<double>? phase;
+  final bool showSignals;
 
   static const _cell = 32.0;
 
@@ -466,11 +569,110 @@ class _ConsolePainter extends CustomPainter {
           colors: [glowColour, glowColour.withValues(alpha: 0)],
         ).createShader(Rect.fromCircle(center: centre, radius: radius)),
     );
+
+    if (showSignals && size.width >= 180 && size.height >= 120) {
+      _drawSignalField(canvas, size, phase?.value ?? .18);
+    }
+  }
+
+  /// A small deterministic network diagram, biased to the right side of the
+  /// card so headings and controls retain a quiet reading surface. The moving
+  /// dots are packets, not decorative confetti: they only appear while a
+  /// connection is actively establishing or established.
+  void _drawSignalField(Canvas canvas, Size size, double progress) {
+    const points = <Offset>[
+      Offset(.52, .16),
+      Offset(.70, .10),
+      Offset(.87, .18),
+      Offset(.62, .32),
+      Offset(.80, .36),
+      Offset(.95, .43),
+      Offset(.49, .52),
+      Offset(.69, .57),
+      Offset(.88, .64),
+      Offset(.61, .75),
+      Offset(.79, .82),
+      Offset(.97, .78),
+    ];
+    const links = <(int, int)>[
+      (0, 1),
+      (0, 3),
+      (1, 2),
+      (1, 4),
+      (2, 4),
+      (2, 5),
+      (3, 4),
+      (3, 6),
+      (4, 5),
+      (4, 7),
+      (5, 8),
+      (6, 7),
+      (6, 9),
+      (7, 8),
+      (7, 9),
+      (7, 10),
+      (8, 10),
+      (8, 11),
+      (9, 10),
+      (10, 11),
+    ];
+
+    Offset pointAt(int index) {
+      final source = points[index];
+      final angle = progress * math.pi * 2 + index * 1.73;
+      // Sub-pixel drift is enough to keep the field alive. Larger motion makes
+      // a dense dashboard feel unstable, especially beside changing figures.
+      return Offset(
+        source.dx * size.width + math.sin(angle) * 2.4,
+        source.dy * size.height + math.cos(angle * 1.17) * 2.1,
+      );
+    }
+
+    final resolved = <Offset>[
+      for (var i = 0; i < points.length; i++) pointAt(i)
+    ];
+    final linkPen = Paint()
+      ..color = signalColour.withValues(alpha: dark ? .105 : .065)
+      ..strokeWidth = 1;
+    for (final (from, to) in links) {
+      canvas.drawLine(resolved[from], resolved[to], linkPen);
+    }
+
+    final halo = Paint()
+      ..color = signalColour.withValues(alpha: dark ? .14 : .08)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    final node = Paint()
+      ..color = signalColour.withValues(alpha: dark ? .54 : .38);
+    for (final point in resolved) {
+      canvas.drawCircle(point, 3.3, halo);
+      canvas.drawCircle(point, 1.35, node);
+    }
+
+    // Four packets travel different links. Offset phases make the graph feel
+    // alive without turning it into a periodic loading spinner.
+    const packetLinks = <(int, int)>[(0, 4), (3, 7), (6, 10), (4, 8)];
+    final packetHalo = Paint()
+      ..color = signalColour.withValues(alpha: dark ? .42 : .24)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+    final packet = Paint()
+      ..color = signalColour.withValues(alpha: dark ? .9 : .72);
+    for (var i = 0; i < packetLinks.length; i++) {
+      final (from, to) = packetLinks[i];
+      final travel = (progress * 1.35 + i * .27) % 1;
+      final eased = Curves.easeInOut.transform(travel);
+      final position = Offset.lerp(resolved[from], resolved[to], eased)!;
+      canvas.drawCircle(position, 4.6, packetHalo);
+      canvas.drawCircle(position, 1.8, packet);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _ConsolePainter oldDelegate) =>
-      oldDelegate.line != line || oldDelegate.glowColour != glowColour;
+      oldDelegate.line != line ||
+      oldDelegate.glowColour != glowColour ||
+      oldDelegate.signalColour != signalColour ||
+      oldDelegate.dark != dark ||
+      oldDelegate.showSignals != showSignals;
 }
 
 /// The wide dashboard's centrepiece: down and up rates on one shared scale.
@@ -507,6 +709,7 @@ class TrafficFlowChart extends StatelessWidget {
           downColor: downColor,
           upColor: upColor,
           gridColor: palette.border,
+          dpr: MediaQuery.of(context).devicePixelRatio,
         ),
       ),
     );
@@ -520,6 +723,7 @@ class _FlowPainter extends CustomPainter {
     required this.downColor,
     required this.upColor,
     required this.gridColor,
+    required this.dpr,
   });
 
   final List<int> downlink;
@@ -527,6 +731,10 @@ class _FlowPainter extends CustomPainter {
   final Color downColor;
   final Color upColor;
   final Color gridColor;
+
+  /// Device pixel ratio, so the rules land on whole pixels. A painter cannot
+  /// read it itself.
+  final double dpr;
 
   /// Horizontal rules, including the baseline. Four is enough to read height off
   /// without turning the panel into graph paper.
@@ -538,7 +746,8 @@ class _FlowPainter extends CustomPainter {
       ..color = gridColor
       ..strokeWidth = 1;
     for (var i = 0; i < _gridLines; i++) {
-      final y = size.height - 1 - (size.height - 1) * i / (_gridLines - 1);
+      final span = size.height - 1;
+      final y = crispLine(span - span * i / (_gridLines - 1), dpr);
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
 
@@ -567,18 +776,10 @@ class _FlowPainter extends CustomPainter {
         Offset(i * step, size.height - (values[i] / peak) * (size.height - 6)),
     ];
 
-    final line = Path()..moveTo(points.first.dx, points.first.dy);
-    for (var i = 1; i < points.length; i++) {
-      // Same midpoint smoothing as Sparkline: a raw polyline reads as jittery.
-      final previous = points[i - 1];
-      final current = points[i];
-      final mid = Offset(
-        (previous.dx + current.dx) / 2,
-        (previous.dy + current.dy) / 2,
-      );
-      line.quadraticBezierTo(previous.dx, previous.dy, mid.dx, mid.dy);
-    }
-    line.lineTo(points.last.dx, points.last.dy);
+    // Through every sample — see [smoothThrough]. The old midpoint smoothing
+    // drew a burst at about half its height, on the one chart whose job is to
+    // show bursts.
+    final line = smoothThrough(points, minY: 1, maxY: size.height - 1);
 
     final bounds = Rect.fromLTWH(0, 0, size.width, size.height);
     canvas.drawPath(
@@ -613,6 +814,7 @@ class _FlowPainter extends CustomPainter {
       oldDelegate.downColor != downColor ||
       oldDelegate.upColor != upColor ||
       oldDelegate.gridColor != gridColor ||
+      oldDelegate.dpr != dpr ||
       !_MiniBarsPainter._sameValues(oldDelegate.downlink, downlink) ||
       !_MiniBarsPainter._sameValues(oldDelegate.uplink, uplink);
 }

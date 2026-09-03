@@ -1,11 +1,16 @@
-/// Filesystem locations owned by the app, from the platform side.
+/// Filesystem locations owned by the app.
 ///
-/// This is one `MethodChannel` call rather than a `path_provider` dependency:
-/// that package's current Android implementation pulls in JNI bindings and build
-/// hooks, which is a lot of build surface for a string the host already holds.
-/// Asking the host directly also guarantees the answer is the same directory
-/// libbox was set up with (`SetupOptions.basePath`), so app files and engine
-/// state stay in one place.
+/// The Android answer comes over one `MethodChannel` call rather than a
+/// `path_provider` dependency: that package's current Android implementation
+/// pulls in JNI bindings and build hooks, which is a lot of build surface for a
+/// string the host already holds. Asking the host directly also guarantees the
+/// answer is the same directory libbox was set up with
+/// (`SetupOptions.basePath`), so app files and engine state stay in one place.
+///
+/// The Windows runner answers on the same channel. Linux answers nothing, so
+/// the path is derived here instead, from the XDG base directory spec. Same
+/// reasoning as above, one step further: the rule is short enough to write out,
+/// and doing so keeps the dependency out.
 library;
 
 import 'dart:io';
@@ -18,26 +23,86 @@ import 'package:flutter/services.dart';
 const appControlChannel = 'singbox/control';
 const dataDirMethod = 'dataDir';
 
+/// Directory name under the desktop data root. Not the package name — this one
+/// is user-visible in `~/.local/share`.
+const desktopDataDirName = 'singbox-client';
+
 const _channel = MethodChannel(appControlChannel);
 
-/// The app's private data directory.
+/// The app's private data directory, or null when there is nowhere to put one.
 ///
-/// Android returns `filesDir`. Windows answers from the native runner so the
-/// process controller and rule-set unpacker share one stable location. The
-/// environment fallback keeps Windows development builds useful when the native
-/// runner is older than the Dart bundle. Other desktop hosts continue to return
-/// null until their native runtimes are implemented.
-Future<String?> appDataDirectory() async {
+/// Android returns `filesDir`, and the Windows runner answers with
+/// `%LOCALAPPDATA%\SingBox Client`, so the process controller and the rule-set
+/// unpacker share one stable location. On Linux the channel throws — there is
+/// no host handler — and the path is computed and created here. Everything that
+/// lands in it is private: the rendered config carries node credentials and the
+/// Clash API secret, so the directory is created 0700 on POSIX.
+///
+/// [environment] overrides the process environment, so a test can point the
+/// derivation at a temp directory instead of the real `~/.local/share`.
+Future<String?> appDataDirectory({Map<String, String>? environment}) async {
   try {
-    final hostPath = await _channel.invokeMethod<String>(dataDirMethod);
-    if (hostPath != null && hostPath.isNotEmpty) return hostPath;
+    final fromHost = await _channel.invokeMethod<String>(dataDirMethod);
+    if (fromHost != null && fromHost.isNotEmpty) return fromHost;
+  } on Object {
+    // No host handler, or a desktop runner older than this Dart bundle.
+    // Fall through to the derivation below.
+  }
+  return _desktopDataDirectory(environment ?? Platform.environment);
+}
+
+/// Resolves and creates the desktop data directory.
+///
+/// Returns null rather than throwing: callers treat a missing directory as "no
+/// local rule-sets" and carry on, and the Linux runtime reports it as an
+/// engine error, which is more useful than a crash at startup.
+Future<String?> _desktopDataDirectory(Map<String, String> env) async {
+  final path = _dataDirPath(env);
+  if (path == null) return null;
+  final dir = Directory(path);
+  try {
+    final fresh = !dir.existsSync();
+    if (fresh) await dir.create(recursive: true);
+    // Dart has no chmod. Only on a fresh directory: a user who widened the
+    // permissions themselves is not overruled on every launch.
+    if (fresh && !Platform.isWindows) await restrictToOwner(dir.path);
+    return dir.path;
   } on Object {
     // Desktop runners from an older build do not expose the channel yet.
+    return null;
   }
+}
 
+/// The full path to the data directory, per platform convention.
+///
+/// Windows mirrors what the native runner answers, so a development bundle
+/// whose runner predates this code still lands in one directory rather than
+/// two. POSIX follows the XDG base directory spec.
+String? _dataDirPath(Map<String, String> env) {
   if (Platform.isWindows) {
-    final base = Platform.environment['LOCALAPPDATA'];
-    if (base != null && base.isNotEmpty) return '$base\\SingBox Client';
+    final base = env['LOCALAPPDATA'] ?? env['APPDATA'] ?? env['USERPROFILE'];
+    return base == null || base.isEmpty ? null : '$base\\SingBox Client';
   }
-  return null;
+  final root = _dataRoot(env);
+  return root == null ? null : '$root/$desktopDataDirName';
+}
+
+/// `$XDG_DATA_HOME`, or `~/.local/share`.
+String? _dataRoot(Map<String, String> env) {
+  final xdg = env['XDG_DATA_HOME'];
+  // The spec says a relative XDG_DATA_HOME must be ignored.
+  if (xdg != null && xdg.startsWith('/')) return xdg;
+  final home = env['HOME'];
+  return home == null || home.isEmpty ? null : '$home/.local/share';
+}
+
+/// Drops group and other permissions from [path]. Best effort: failure means
+/// the file keeps the umask's answer, which is not a reason to refuse to run.
+Future<void> restrictToOwner(String path, {bool file = false}) async {
+  if (Platform.isWindows) return;
+  try {
+    await Process.run('chmod', [file ? '600' : '700', path]);
+  } on Object {
+    // No chmod on PATH. Nothing else to try.
+  }
 }
