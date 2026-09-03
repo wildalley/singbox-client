@@ -150,6 +150,20 @@ void FlutterWindow::RegisterControlChannel() {
           return;
         }
 
+        if (call.method_name() == "isRunningElevated") {
+          result->Success(flutter::EncodableValue(IsRunningElevated()));
+          return;
+        }
+
+        if (call.method_name() == "requestElevation") {
+          if (RequestElevation()) {
+            result->Success(flutter::EncodableValue(true));
+          } else {
+            result->Success(flutter::EncodableValue(false));
+          }
+          return;
+        }
+
         if (call.method_name() == "restoreSystemProxy") {
           std::wstring error;
           if (windows_proxy_manager_.Restore(&error)) {

@@ -41,6 +41,20 @@ Windows system-proxy setting.
 - Process output, Clash API traffic counters, selector changes, and URL tests
   feed the same bounded UI streams as Android
 
+**Proxy runtime (Windows)**
+
+- Supervises a bundled `sing-box.exe` (verified checksum), driven over its Clash
+  API: node switching, per-node URL tests, traffic, connection count, and memory
+- Two modes. System proxy is the default and needs no privileges, pointing WinINet
+  at the loopback inbound; TUN captures everything and asks for administrator
+  rights through a UAC prompt, requiring `wintun.dll` in the app directory
+- Restores the user's previous WinINet proxy settings on stop, on quit, and on
+  next launch after an unclean exit
+- Job object supervision: when the UI closes unexpectedly, the process supervisor
+  reaps the supervised process
+- Process output, Clash API traffic counters, selector changes, and URL tests
+  feed the same bounded UI streams as Android
+
 **Proxy runtime (Linux)**
 
 - Supervises an installed `sing-box` (≥ 1.12), driven over its Clash API: node

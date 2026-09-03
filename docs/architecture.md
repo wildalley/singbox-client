@@ -88,22 +88,27 @@ lifecycle and the foreground notification. libbox drives the proxy:
 Channels: `singbox/control` (methods) and `singbox/events` (status, traffic,
 logs, outbound groups).
 
-**Windows — system-proxy runtime implemented.** `WindowsProxyController` writes
-the rendered config to a per-run file, removes the Android-only TUN inbound,
-starts the checksum-pinned `sing-box.exe`, and waits for its loopback Clash API
-before reporting `connected`. Its stdout/stderr, `/connections` counters,
-selector API, and URL-test API feed the same streams as Android. When the
-Settings system-proxy toggle is on, the Windows runner's WinINet bridge saves
-the user's proxy/PAC registry values, sets `127.0.0.1:2080`, and restores them on
-stop or the next launch after a crash. The core process is attached to a native
-Job Object with `KILL_ON_JOB_CLOSE`, so closing the runner also reaps a child
-left behind by a Dart shutdown. The current mode is intentionally not a
-transparent tunnel: applications that ignore WinINet or use raw UDP bypass it.
+**Windows — implemented.** `WindowsProxyController` writes the rendered config to
+a per-run file, starts the checksum-pinned `sing-box.exe`, and waits for its Clash
+API before reporting `connected`. Its stdout/stderr, `/connections` counters,
+selector API, and URL-test API feed the same streams as Android.
 
-**Windows TUN — not implemented.** Transparent Windows routing still needs an
-elevated Wintun/helper flow, route and DNS rollback, and sleep/resume handling.
-Keep the UI usable when that runtime is unavailable and report actionable
-permission errors.
+Two modes are supported:
+
+1. **System proxy** (default): The controller removes the TUN inbound, adds a mixed
+   inbound on `127.0.0.1:2080`, and sets the WinINet registry to point at it. The
+   Windows runner saves the user's proxy/PAC registry values, sets the loopback
+   proxy, and restores them on stop or the next launch after a crash. No elevation
+   required.
+
+2. **TUN** (requires administrator): When a TUN inbound is present and the process
+   is running elevated, the controller keeps the TUN inbound and lets sing-box
+   create a Wintun virtual adapter. If not elevated, a UAC prompt requests
+   administrator rights and restarts the app. Requires `wintun.dll` in the app
+   directory or System32.
+
+The core process is attached to a native Job Object with `KILL_ON_JOB_CLOSE`, so
+closing the runner also reaps a child left behind by a Dart shutdown.
 
 **Linux — implemented.** `libbox.aar` is a gomobile artifact with JNI bindings,
 so it cannot be loaded here. `LinuxProxyController` supervises an installed

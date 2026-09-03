@@ -1,5 +1,6 @@
 #include "windows_proxy.h"
 
+#include <shellapi.h>
 #include <wininet.h>
 
 #include <string>
@@ -475,3 +476,46 @@ bool WindowsProxyManager::Restore(std::wstring* error) {
   saved_settings_ = ProxySettings();
   return cleared;
 }
+
+bool IsRunningElevated() {
+  HANDLE token = nullptr;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    return false;
+  }
+
+  TOKEN_ELEVATION elevation;
+  DWORD size = sizeof(TOKEN_ELEVATION);
+  bool elevated = false;
+
+  if (GetTokenInformation(token, TokenElevation, &elevation, size, &size)) {
+    elevated = elevation.TokenIsElevated != 0;
+  }
+
+  CloseHandle(token);
+  return elevated;
+}
+
+bool RequestElevation() {
+  wchar_t exe_path[MAX_PATH];
+  if (GetModuleFileNameW(nullptr, exe_path, MAX_PATH) == 0) {
+    return false;
+  }
+
+  SHELLEXECUTEINFOW info = {};
+  info.cbSize = sizeof(SHELLEXECUTEINFOW);
+  info.fMask = SEE_MASK_NOCLOSEPROCESS;
+  info.lpVerb = L"runas";
+  info.lpFile = exe_path;
+  info.nShow = SW_SHOWNORMAL;
+
+  if (!ShellExecuteExW(&info)) {
+    return false;
+  }
+
+  if (info.hProcess != nullptr) {
+    CloseHandle(info.hProcess);
+  }
+
+  return true;
+}
+

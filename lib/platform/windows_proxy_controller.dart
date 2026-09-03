@@ -1,11 +1,15 @@
 /// Windows proxy runtime backed by a supervised sing-box process.
 ///
-/// The first desktop runtime intentionally uses the loopback mixed inbound
-/// rather than TUN. It gives Windows applications that honour WinINet a real
-/// proxy without requiring an elevated helper or a Wintun driver. The generated
-/// config still contains the Android TUN inbound; it is removed here before the
-/// standalone core is started because a desktop process cannot open it safely
-/// from the Flutter UI process yet.
+/// Supports two modes:
+/// - **System proxy mode**: uses a loopback mixed inbound with WinINet, no
+///   elevation required.
+/// - **TUN mode**: uses a Wintun virtual adapter, requires administrator rights
+///   and the Wintun driver (wintun.dll).
+///
+/// TUN mode needs:
+/// 1. Administrator privileges (UAC prompt on first run)
+/// 2. Wintun.dll in the executable directory or System32
+/// 3. sing-box.exe with TUN support enabled
 library;
 
 import 'dart:async';
@@ -18,9 +22,12 @@ import '../data/config_builder.dart';
 import '../models/proxy_state.dart';
 import 'app_paths.dart';
 import 'proxy_controller.dart';
+import 'windows_privileges.dart';
 
 class WindowsProxyController implements ProxyController {
-  WindowsProxyController() {
+  WindowsProxyController({
+    WindowsPrivileges? privileges,
+  }) : _privileges = privileges ?? WindowsPrivileges() {
     // If the previous process was terminated while it owned WinINet, the
     // native runner has a persisted backup. Restore it before the next start;
     // the call is a no-op on a clean launch and on older runners.
@@ -33,6 +40,7 @@ class WindowsProxyController implements ProxyController {
   static const _apiRequestTimeout = Duration(seconds: 8);
   static const _pollInterval = Duration(seconds: 1);
 
+  final WindowsPrivileges _privileges;
   final _stateController = StreamController<ProxyState>.broadcast();
   final _trafficController = StreamController<ProxyTraffic>.broadcast();
   final _logController = StreamController<ProxyLogEntry>.broadcast();
@@ -47,6 +55,7 @@ class WindowsProxyController implements ProxyController {
   int _apiPort = ConfigBuilder.clashApiPort;
   String? _apiSecret;
   var _usesSystemProxy = false;
+  var _usesTun = false;
   var _stopping = false;
   var _disposed = false;
   var _statsInFlight = false;
@@ -73,9 +82,14 @@ class WindowsProxyController implements ProxyController {
   @override
   ProxyState get currentState => _state;
 
-  /// The loopback MVP does not need administrator permission.
+  /// TUN mode requires administrator rights and the Wintun driver.
+  /// System proxy mode needs no elevation.
   @override
-  Future<bool> requestPermission() async => !_disposed;
+  Future<bool> requestPermission() async {
+    if (_disposed) return false;
+    // Permission check happens in start() when we know which mode is requested.
+    return true;
+  }
 
   @override
   Future<void> start(String configJson) async {
@@ -104,6 +118,11 @@ class WindowsProxyController implements ProxyController {
 
       final config = _prepareConfig(configJson);
       _extractApiSettings(config);
+
+      // TUN mode requires administrator rights and Wintun driver
+      if (_usesTun && !await _authorizeTun()) {
+        return;
+      }
 
       final runtime = await _runtimeDirectory();
       final file = File(
@@ -568,18 +587,25 @@ class WindowsProxyController implements ProxyController {
     }
 
     var useSystemProxy = false;
+    var usesTun = false;
     final inbounds = <Map<String, dynamic>>[];
     for (final raw in rawInbounds) {
       if (raw is! Map) continue;
       final inbound = Map<String, dynamic>.from(raw);
       final type = inbound['type']?.toString().toLowerCase();
       if (type == 'tun') {
+        // TUN inbound is kept when running elevated, removed otherwise
+        usesTun = true;
         final platform = inbound['platform'];
         if (platform is Map) {
           final httpProxy = platform['http_proxy'];
           if (httpProxy is Map && httpProxy['enabled'] == true) {
             useSystemProxy = true;
           }
+        }
+        // Keep the TUN inbound if we can use it, remove it otherwise
+        if (_privileges.isRunningElevated()) {
+          inbounds.add(inbound);
         }
         continue;
       }
@@ -590,6 +616,7 @@ class WindowsProxyController implements ProxyController {
       inbounds.add(inbound);
     }
 
+    // Fallback to mixed inbound when TUN is not available or not elevated
     if (!inbounds.any((item) => item['type']?.toString() == 'mixed')) {
       inbounds.add({
         'type': 'mixed',
@@ -600,6 +627,7 @@ class WindowsProxyController implements ProxyController {
     }
     config['inbounds'] = inbounds;
     _usesSystemProxy = useSystemProxy;
+    _usesTun = usesTun;
     return config;
   }
 
@@ -649,6 +677,41 @@ class WindowsProxyController implements ProxyController {
     final directory = Directory('$path${Platform.pathSeparator}runtime');
     await directory.create(recursive: true);
     return directory;
+  }
+
+  Future<bool> _authorizeTun() async {
+    _emitState(const ProxyState(stage: ProxyStage.requestingPermission));
+
+    final status = await _privileges.requestTunPrivileges();
+
+    switch (status) {
+      case TunAuthorizationStatus.granted:
+        _emitState(const ProxyState(stage: ProxyStage.starting));
+        return true;
+
+      case TunAuthorizationStatus.declined:
+        _emitState(const ProxyState(
+          stage: ProxyStage.error,
+          message: 'TUN mode requires administrator rights. '
+              'Please allow the UAC prompt or switch to system proxy mode.',
+        ));
+        return false;
+
+      case TunAuthorizationStatus.driverMissing:
+        _emitState(const ProxyState(
+          stage: ProxyStage.error,
+          message: 'TUN mode requires wintun.dll. '
+              'Download it from wintun.net and place it in the application directory.',
+        ));
+        return false;
+
+      case TunAuthorizationStatus.failed:
+        _emitState(const ProxyState(
+          stage: ProxyStage.error,
+          message: 'Failed to obtain administrator rights for TUN mode.',
+        ));
+        return false;
+    }
   }
 
   Future<void> _enableSystemProxy() async {

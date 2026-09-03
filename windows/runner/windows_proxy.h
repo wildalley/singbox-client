@@ -54,4 +54,13 @@ class WindowsProxyManager {
   HANDLE process_job_ = nullptr;
 };
 
+/// Checks if the current process is running with administrator privileges.
+bool IsRunningElevated();
+
+/// Requests administrator elevation by restarting the application with UAC.
+///
+/// Returns true if elevation was requested successfully (the current process
+/// will exit). Returns false if the user declined or elevation is unavailable.
+bool RequestElevation();
+
 #endif  // RUNNER_WINDOWS_PROXY_H_
