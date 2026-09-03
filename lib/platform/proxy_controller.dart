@@ -3,7 +3,7 @@
 /// The UI talks only to [ProxyController]. Android is backed by a VpnService
 /// running sing-box via libbox; Linux supervises a `sing-box` process driven
 /// over the Clash API; Windows supervises a bundled standalone core for its
-/// loopback system-proxy runtime.
+/// loopback system-proxy or elevated Wintun TUN runtime.
 library;
 
 import 'dart:async';

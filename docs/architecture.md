@@ -95,17 +95,17 @@ selector API, and URL-test API feed the same streams as Android.
 
 Two modes are supported:
 
-1. **System proxy** (default): The controller removes the TUN inbound, adds a mixed
-   inbound on `127.0.0.1:2080`, and sets the WinINet registry to point at it. The
-   Windows runner saves the user's proxy/PAC registry values, sets the loopback
-   proxy, and restores them on stop or the next launch after a crash. No elevation
-   required.
+1. **System proxy** (default): The controller removes the TUN inbound, keeps or
+   adds a mixed inbound on `127.0.0.1:2080`, and sets the WinINet registry to point
+   at it. The Windows runner saves the user's proxy/PAC registry values, sets the
+   loopback proxy, and restores them on stop or the next launch after a crash. No
+   elevation required.
 
 2. **TUN** (requires administrator): When a TUN inbound is present and the process
    is running elevated, the controller keeps the TUN inbound and lets sing-box
    create a Wintun virtual adapter. If not elevated, a UAC prompt requests
-   administrator rights and restarts the app. Requires `wintun.dll` in the app
-   directory or System32.
+   administrator rights and restarts the app; the elevated instance continues
+   the pending connection. The pinned sing-box runtime embeds its Wintun DLL.
 
 The core process is attached to a native Job Object with `KILL_ON_JOB_CLOSE`, so
 closing the runner also reaps a child left behind by a Dart shutdown.
@@ -187,13 +187,13 @@ under the user's cursor.
 
 Because the close button hides, a second launch is not an error to refuse — it is
 the user asking for the window, most likely because the tray icon is unreachable.
-`SingleInstance` binds a Unix socket in the app's own 0700 data directory; a
-second process connects, says so, and exits, and the first raises its window. A
-socket rather than a lock file because it answers both questions at once: a stale
-lock file after a crash is indistinguishable from a live instance, while a stale
-socket refuses the connection. If neither connecting nor binding works the app
-runs unguarded, since the failure that matters is a user with no window, not a
-user with two.
+`SingleInstance` binds a Unix socket in the app's own 0700 data directory on
+POSIX, and a deterministic loopback TCP port on Windows because Dart does not
+support Unix sockets there. A second process connects, says so, and exits, and
+the first raises its window. A local endpoint rather than a lock file answers
+both questions at once: whether anyone is home and how to talk to them. If
+neither connecting nor binding works the app runs unguarded, since the failure
+that matters is a user with no window, not a user with two.
 
 ## Configuration flow
 
@@ -277,8 +277,6 @@ a caller cannot forget it and quietly render an open listener.
 
 ## Remaining work
 
-- Privileged Windows TUN: a Wintun adapter, route and DNS rollback, and the
-  elevation flow it needs.
 - Per-app proxy UI (the setting and config plumbing exist; there is no picker).
 - Release signing: `android/app/build.gradle.kts` still signs with debug keys.
 - Additional ABIs — `scripts/build-libbox.sh` builds arm64 only by default.

@@ -16,11 +16,11 @@ enum TunAuthorizationStatus {
   /// User declined the UAC prompt.
   declined,
 
-  /// wintun.dll is missing from the application directory.
-  driverMissing,
-
   /// Elevation failed for an unknown reason.
   failed,
+
+  /// UAC accepted and a new elevated app instance was launched.
+  relaunching,
 }
 
 class WindowsPrivileges {
@@ -40,24 +40,23 @@ class WindowsPrivileges {
 
   /// Requests administrator privileges for TUN mode.
   ///
-  /// If already elevated, checks for wintun.dll and returns [granted].
-  /// Otherwise, shows UAC prompt to restart with elevation.
+  /// If already elevated, TUN can proceed. Otherwise, shows a UAC prompt to
+  /// restart with elevation. The pinned sing-box Windows runtime embeds its
+  /// Wintun DLL, so there is no separate client-side driver file to probe.
   Future<TunAuthorizationStatus> requestTunPrivileges() async {
     // Check if already running elevated
     if (await isRunningElevated()) {
-      // Verify wintun.dll exists
-      if (await _hasWintunDriver()) {
-        return TunAuthorizationStatus.granted;
-      }
-      return TunAuthorizationStatus.driverMissing;
+      return TunAuthorizationStatus.granted;
     }
 
     // Request elevation via UAC
     try {
       final result = await _channel.invokeMethod<bool>('requestElevation');
       if (result == true) {
-        // The app will restart elevated, so this process should exit
-        return TunAuthorizationStatus.granted;
+        // The native runner starts a second, elevated app instance. The caller
+        // must leave this unelevated process so the two instances do not both
+        // try to own the runtime.
+        return TunAuthorizationStatus.relaunching;
       }
       return TunAuthorizationStatus.declined;
     } on PlatformException {
@@ -65,11 +64,5 @@ class WindowsPrivileges {
     } on Object {
       return TunAuthorizationStatus.failed;
     }
-  }
-
-  Future<bool> _hasWintunDriver() async {
-    // TODO: Implement wintun.dll detection
-    // For now, assume it's available when running elevated
-    return true;
   }
 }

@@ -4,18 +4,18 @@
 /// - **System proxy mode**: uses a loopback mixed inbound with WinINet, no
 ///   elevation required.
 /// - **TUN mode**: uses a Wintun virtual adapter, requires administrator rights
-///   and the Wintun driver (wintun.dll).
+///   and the Wintun support bundled in sing-box.
 ///
 /// TUN mode needs:
 /// 1. Administrator privileges (UAC prompt on first run)
-/// 2. Wintun.dll in the executable directory or System32
-/// 3. sing-box.exe with TUN support enabled
+/// 2. sing-box.exe with TUN support enabled
 library;
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../data/config_builder.dart';
@@ -27,7 +27,9 @@ import 'windows_privileges.dart';
 class WindowsProxyController implements ProxyController {
   WindowsProxyController({
     WindowsPrivileges? privileges,
-  }) : _privileges = privileges ?? WindowsPrivileges() {
+    void Function()? exitProcess,
+  })  : _privileges = privileges ?? WindowsPrivileges(),
+        _exitProcess = exitProcess ?? (() => exit(0)) {
     // If the previous process was terminated while it owned WinINet, the
     // native runner has a persisted backup. Restore it before the next start;
     // the call is a no-op on a clean launch and on older runners.
@@ -41,6 +43,7 @@ class WindowsProxyController implements ProxyController {
   static const _pollInterval = Duration(seconds: 1);
 
   final WindowsPrivileges _privileges;
+  final void Function() _exitProcess;
   final _stateController = StreamController<ProxyState>.broadcast();
   final _trafficController = StreamController<ProxyTraffic>.broadcast();
   final _logController = StreamController<ProxyLogEntry>.broadcast();
@@ -82,7 +85,8 @@ class WindowsProxyController implements ProxyController {
   @override
   ProxyState get currentState => _state;
 
-  /// TUN mode requires administrator rights and the Wintun driver.
+  /// TUN mode requires administrator rights; sing-box carries its Wintun
+  /// support in the Windows runtime.
   /// System proxy mode needs no elevation.
   @override
   Future<bool> requestPermission() async {
@@ -119,7 +123,7 @@ class WindowsProxyController implements ProxyController {
       final config = _prepareConfig(configJson);
       _extractApiSettings(config);
 
-      // TUN mode requires administrator rights and Wintun driver
+      // TUN mode requires administrator rights.
       if (_usesTun && !await _authorizeTun()) {
         return;
       }
@@ -594,7 +598,8 @@ class WindowsProxyController implements ProxyController {
       final inbound = Map<String, dynamic>.from(raw);
       final type = inbound['type']?.toString().toLowerCase();
       if (type == 'tun') {
-        // TUN inbound is kept when running elevated, removed otherwise
+        // Keep the TUN inbound until authorization has decided whether this
+        // process may start the config.
         usesTun = true;
         final platform = inbound['platform'];
         if (platform is Map) {
@@ -603,10 +608,10 @@ class WindowsProxyController implements ProxyController {
             useSystemProxy = true;
           }
         }
-        // Keep the TUN inbound if we can use it, remove it otherwise
-        if (_privileges.isRunningElevated()) {
-          inbounds.add(inbound);
-        }
+        // Keep the TUN inbound until authorization has completed. Removing it
+        // here would make a successful UAC relaunch start the fallback mixed
+        // config instead of the TUN config it was asked to run.
+        inbounds.add(inbound);
         continue;
       }
       if (type == 'mixed' || type == 'http') {
@@ -616,8 +621,11 @@ class WindowsProxyController implements ProxyController {
       inbounds.add(inbound);
     }
 
-    // Fallback to mixed inbound when TUN is not available or not elevated
-    if (!inbounds.any((item) => item['type']?.toString() == 'mixed')) {
+    // A custom config may omit the loopback inbound; keep the Clash API and the
+    // app's local-proxy path usable by adding the safe loopback fallback.
+    if (!inbounds.any(
+      (item) => item['type']?.toString().toLowerCase() == 'mixed',
+    )) {
       inbounds.add({
         'type': 'mixed',
         'tag': 'mixed-in',
@@ -626,10 +634,24 @@ class WindowsProxyController implements ProxyController {
       });
     }
     config['inbounds'] = inbounds;
-    _usesSystemProxy = useSystemProxy;
+    // With no TUN inbound, this is the Windows system-proxy mode and WinINet
+    // must be pointed at the loopback listener automatically. In TUN mode the
+    // optional platform.http_proxy block controls whether WinINet is also
+    // enabled for applications that ignore the virtual adapter.
+    _usesSystemProxy = useSystemProxy || !usesTun;
     _usesTun = usesTun;
     return config;
   }
+
+  /// Exposes the Windows config adaptation to unit tests without starting a
+  /// real sing-box process or touching WinINet.
+  @visibleForTesting
+  Map<String, dynamic> prepareConfigForTests(String configJson) =>
+      _prepareConfig(configJson);
+
+  /// Whether the most recently prepared config should update WinINet.
+  @visibleForTesting
+  bool get usesSystemProxyForTests => _usesSystemProxy;
 
   void _extractApiSettings(Map<String, dynamic> config) {
     final experimental = config['experimental'];
@@ -697,12 +719,11 @@ class WindowsProxyController implements ProxyController {
         ));
         return false;
 
-      case TunAuthorizationStatus.driverMissing:
-        _emitState(const ProxyState(
-          stage: ProxyStage.error,
-          message: 'TUN mode requires wintun.dll. '
-              'Download it from wintun.net and place it in the application directory.',
-        ));
+      case TunAuthorizationStatus.relaunching:
+        // The elevated child waits for this process to disappear, then claims
+        // the single-instance socket and starts the same persisted settings.
+        _emitState(ProxyState.disconnected);
+        unawaited(_exitAfterElevation());
         return false;
 
       case TunAuthorizationStatus.failed:
@@ -712,6 +733,13 @@ class WindowsProxyController implements ProxyController {
         ));
         return false;
     }
+  }
+
+  Future<void> _exitAfterElevation() async {
+    // Let the successful MethodChannel reply reach the runner before
+    // terminating this process. The child has a bounded socket handoff wait.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    if (!_disposed) _exitProcess();
   }
 
   Future<void> _enableSystemProxy() async {

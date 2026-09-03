@@ -98,6 +98,20 @@ void main() {
     expect(await claim(), isFalse, reason: 'a live holder must be detected');
   });
 
+  test('an elevated restart waits for the first instance to release', () async {
+    expect(await claim(), isTrue);
+
+    final handoff = SingleInstance.claim(
+      onActivate: () {},
+      directory: dir.path,
+      waitForExisting: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await SingleInstance.release();
+
+    expect(await handoff, isTrue);
+  });
+
   test('no data directory means unguarded rather than refusing to start',
       () async {
     // A single instance is a convenience. The failure that matters is a user

@@ -506,6 +506,7 @@ bool RequestElevation() {
   info.fMask = SEE_MASK_NOCLOSEPROCESS;
   info.lpVerb = L"runas";
   info.lpFile = exe_path;
+  info.lpParameters = L"--elevated-restart";
   info.nShow = SW_SHOWNORMAL;
 
   if (!ShellExecuteExW(&info)) {
@@ -518,4 +519,3 @@ bool RequestElevation() {
 
   return true;
 }
-

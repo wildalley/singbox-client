@@ -9,8 +9,9 @@ engine: a Kotlin `VpnService` drives sing-box through a self-built
 `libbox.aar`. Linux supervises an installed `sing-box` binary and drives it over
 its Clash API, because `libbox.aar` is Android-only and a desktop tun needs a
 capability no in-process library can grant itself. Windows supervises a bundled
-`sing-box.exe` the same way, and exposes its loopback mixed proxy through the
-Windows system-proxy setting.
+`sing-box.exe` the same way. Windows system-proxy mode exposes its loopback mixed
+proxy through WinINet; TUN mode uses sing-box's embedded Wintun support and UAC
+elevation.
 
 ## Features
 
@@ -32,22 +33,14 @@ Windows system-proxy setting.
 **Proxy runtime (Windows)**
 
 - A checksum-pinned `sing-box.exe` is supervised beside the Flutter executable
-- Android-only TUN fields are removed from the desktop config; the loopback
-  `mixed` inbound remains on `127.0.0.1:2080`
-- The Windows system proxy is enabled only when **System proxy** is turned on in
-  Settings, and the user's previous WinINet/PAC values are restored on stop
-- The core is tied to a native Windows Job Object so closing the app also
-  reaps the supervised process
-- Process output, Clash API traffic counters, selector changes, and URL tests
-  feed the same bounded UI streams as Android
-
-**Proxy runtime (Windows)**
-
-- Supervises a bundled `sing-box.exe` (verified checksum), driven over its Clash
-  API: node switching, per-node URL tests, traffic, connection count, and memory
-- Two modes. System proxy is the default and needs no privileges, pointing WinINet
-  at the loopback inbound; TUN captures everything and asks for administrator
-  rights through a UAC prompt, requiring `wintun.dll` in the app directory
+- Supervises the bundled core over its Clash API: node switching, per-node URL
+  tests, traffic, connection count, and memory
+- Two modes. System proxy is the default and needs no privileges; it points
+  WinINet at the loopback inbound automatically. TUN captures everything and
+  asks for administrator rights through a UAC prompt; its optional System HTTP
+  proxy setting can also expose that loopback inbound to WinINet applications.
+  The pinned sing-box runtime carries its Wintun support, so no separate
+  `wintun.dll` copy is required
 - Restores the user's previous WinINet proxy settings on stop, on quit, and on
   next launch after an unclean exit
 - Job object supervision: when the UI closes unexpectedly, the process supervisor
@@ -173,11 +166,12 @@ flutter run -d linux
 flutter run -d windows
 ```
 
-On Windows, import a subscription, turn on **Settings → System HTTP proxy**,
-then press **Connect**. The release bundle places `sing-box.exe` beside the
-Flutter executable; applications that honour the Windows/WinINet proxy use the
-selected node. Raw UDP clients, games, and applications with their own proxy
-settings need the planned TUN runtime instead.
+On Windows, import a subscription and press **Connect**. System-proxy mode is the
+default and automatically configures WinINet. For transparent TCP/UDP capture,
+choose **Settings → Proxy mode → TUN**; the optional **System HTTP proxy** setting
+also configures WinINet for applications that ignore the virtual adapter. Windows
+will request UAC elevation on the first TUN start, and the new elevated instance
+will continue the requested connection automatically.
 
 ### Packaging
 
@@ -244,13 +238,13 @@ flutter analyze
 flutter test
 ```
 
-463 tests pass: share-link parsing, config rendering, custom-rule validation and
+468 tests pass: share-link parsing, config rendering, custom-rule validation and
 placement, import format detection, the Clash API client both desktop runtimes
 drive, the polkit capability grant, the Linux system-proxy backend against fakes,
 the shutdown path, the single-instance socket, tray menu construction, UI
 interaction against a fake controller, and localization/theme coverage including
-palette contrast ratios. The Windows adapter has no unit coverage of its own —
-its WinINet bridge and Job Object live in the native runner.
+palette contrast ratios. Windows privilege decisions have unit coverage; its
+WinINet bridge, Job Object, and live TUN adapter still need a Windows session.
 
 Visual regression snapshots are gated behind an environment variable, because
 they render on the host's font stack and are only meaningful where they were
@@ -267,7 +261,7 @@ the URL-test delays behind latency sorting.
 
 Three desktop paths are covered by unit tests but have not been exercised on a
 live desktop session: the tray icon appearing on a panel and its menu opening,
-the polkit prompt a first TUN start puts up, and the window hide/show cycle.
+the polkit/UAC prompt a first TUN start puts up, and the window hide/show cycle.
 Their logic is tested against fakes — menu contents, quit ordering, `pkexec`
 argv, socket handoff — which is not the same as having watched them happen.
 
@@ -288,13 +282,13 @@ UI translates, so business logic stays free of `BuildContext`.
 | --- | --- | --- |
 | Android (arm64) | sing-box via libbox + VpnService | yes |
 | Linux (x86_64) | supervised `sing-box` process + Clash API | yes |
-| Windows (x64) | supervised `sing-box.exe` + WinINet system proxy (HTTP/SOCKS clients) | yes |
-| Windows TUN | not implemented; requires an elevated Wintun flow | — |
+| Windows (x64) | supervised `sing-box.exe` + WinINet system proxy or elevated Wintun TUN | yes |
 
-Both desktop runtimes are the same supervised-process adapter over the Clash
-API, described in [`docs/architecture.md`](docs/architecture.md); they differ
-only in how the system proxy is set — `gsettings`/`kwriteconfig` on Linux,
-WinINet on Windows. Transparent TUN routing on Windows remains future work.
+Both desktop runtimes are the same supervised-process adapter over the Clash API,
+described in [`docs/architecture.md`](docs/architecture.md); they differ in how
+the system proxy is set — `gsettings`/`kwriteconfig` on Linux, WinINet on Windows
+— and in their privilege flow. Linux grants file capabilities to its installed
+core; Windows relaunches the app through UAC when TUN is selected.
 
 Linux needs `sing-box` 1.12 or newer on `PATH` — the rendered config uses 1.12
 schema. `SINGBOX_BINARY` overrides the lookup. Which mode to run:
@@ -346,6 +340,9 @@ the same `ProxyController` interface.
 - The Linux runtime is covered by unit tests against fakes, not by a live tunnel:
   no automated test starts a real `sing-box`, creates a tun, or writes real
   desktop proxy settings.
+- The Windows runtime is covered by static and unit checks, not a live UAC/TUN
+  session; a Windows machine is still needed to verify adapter creation and
+  route rollback end to end.
 - Linux has no privileged helper. TUN depends on a file capability on the
   `sing-box` binary, granted through polkit and cleared by a package upgrade,
   which brings the prompt back. A systemd or polkit-installed helper would

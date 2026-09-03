@@ -30,7 +30,7 @@ import 'ui/theme.dart';
 import 'ui/widgets.dart';
 import 'version.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // The shell does not exist yet — it needs AppState, which needs storage — so
@@ -38,7 +38,13 @@ Future<void> main() async {
   // arriving in that window is dropped, which is the right answer: the first
   // instance is still starting, and its window is about to appear anyway.
   DesktopShell? shell;
-  if (isSupported && !await SingleInstance.claim(onActivate: () => shell?.activate())) {
+  final elevatedRestart =
+      Platform.isWindows && args.contains(elevatedRestartArgument);
+  if (isSupported &&
+      !await SingleInstance.claim(
+        onActivate: () => shell?.activate(),
+        waitForExisting: elevatedRestart,
+      )) {
     // Another instance holds the socket and has been asked to show its window.
     // Nothing has been initialised yet, so there is nothing to unwind.
     exit(0);
@@ -63,6 +69,11 @@ Future<void> main() async {
   // the window.
   shell = DesktopShell(state);
   unawaited(shell.start());
+  // The unelevated process launched the UAC child on behalf of a connection
+  // request, then exited. The child has the same persisted nodes/settings, so
+  // resume that request instead of leaving the user at a disconnected screen
+  // that requires a second manual click.
+  if (elevatedRestart) unawaited(state.connect());
 }
 
 /// Hosts the shell. [state] is owned by the caller (`main`, or a test), which
