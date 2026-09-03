@@ -1,8 +1,9 @@
 /// Platform-neutral proxy runtime boundary.
 ///
 /// The UI talks only to [ProxyController]. Android is backed by a VpnService
-/// running sing-box via libbox; desktop platforms currently get
-/// [UnsupportedProxyController] until process supervision lands.
+/// running sing-box via libbox; Linux supervises a `sing-box` process driven
+/// over the Clash API; Windows supervises a bundled standalone core for its
+/// loopback system-proxy runtime.
 library;
 
 import 'dart:async';
@@ -12,6 +13,8 @@ import 'package:flutter/services.dart';
 
 import '../models/proxy_state.dart';
 import 'app_paths.dart';
+import 'linux_proxy_controller.dart';
+import 'windows_proxy_controller.dart';
 
 abstract interface class ProxyController {
   Stream<ProxyState> get states;
@@ -34,6 +37,12 @@ abstract interface class ProxyController {
 
   Future<void> stop();
 
+  /// Clears the engine's in-memory log buffer.
+  ///
+  /// The UI keeps its own bounded copy, so implementations should treat this
+  /// as best-effort when the tunnel is not running.
+  Future<void> clearLogs();
+
   /// Applies a new config without tearing the tunnel down.
   Future<void> reload(String configJson);
 
@@ -49,6 +58,19 @@ abstract interface class ProxyController {
 
   /// Version of the bundled proxy core, or null when it cannot be determined.
   Future<String?> coreVersion();
+
+  /// Releases everything, and waits for the parts that must not be cut short.
+  ///
+  /// [dispose] cannot do this job: it is synchronous, so it can fire a signal
+  /// but not wait for the engine to act on it, and it cannot put the desktop's
+  /// proxy settings back at all — that is an async call to `gsettings`. Left to
+  /// dispose alone, quitting while connected in system-proxy mode leaves the
+  /// desktop pointed at a port with nothing behind it and every application on
+  /// it offline.
+  ///
+  /// Call this before the process exits, and await it. [dispose] stays as the
+  /// last resort for a teardown that cannot wait.
+  Future<void> shutdown();
 
   void dispose();
 }
@@ -184,6 +206,16 @@ class AndroidProxyController implements ProxyController {
   }
 
   @override
+  Future<void> clearLogs() async {
+    try {
+      await _method.invokeMethod<void>('clearLogs');
+    } on PlatformException {
+      // Clearing a local viewer must still work when the service has already
+      // gone away; the native buffer is only a secondary copy.
+    }
+  }
+
+  @override
   Future<void> reload(String configJson) async {
     await _method.invokeMethod<void>('reload', {'config': configJson});
   }
@@ -205,6 +237,15 @@ class AndroidProxyController implements ProxyController {
     } on PlatformException {
       return null;
     }
+  }
+
+  @override
+  Future<void> shutdown() async {
+    // Nothing to unwind that outlives the process: the tunnel belongs to a
+    // foreground service with its own lifecycle, and Android has no system
+    // proxy setting of ours to put back. Closing the app is not a reason to
+    // drop the VPN, so the service is deliberately left alone.
+    dispose();
   }
 
   @override
@@ -258,6 +299,9 @@ class UnsupportedProxyController implements ProxyController {
   }
 
   @override
+  Future<void> clearLogs() async {}
+
+  @override
   Future<void> reload(String configJson) async {}
 
   @override
@@ -270,11 +314,21 @@ class UnsupportedProxyController implements ProxyController {
   Future<String?> coreVersion() async => null;
 
   @override
+  Future<void> shutdown() async => dispose();
+
+  @override
   void dispose() => _stateController.close();
 }
 
+/// The controller for the host platform.
+///
+/// Android runs the engine in-process through libbox; Linux supervises the
+/// `sing-box` binary and drives it over the Clash API; Windows supervises a
+/// bundled standalone core for its loopback system-proxy runtime.
 ProxyController createProxyController() {
   if (Platform.isAndroid) return AndroidProxyController();
+  if (Platform.isLinux) return LinuxProxyController();
+  if (Platform.isWindows) return WindowsProxyController();
   return UnsupportedProxyController(
     'The ${Platform.operatingSystem} runtime is not implemented yet. '
     'Config rendering and node management still work.',

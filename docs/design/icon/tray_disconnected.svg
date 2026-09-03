@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tray icon, disconnected. See tray_connected.svg for the shared reasoning.
+
+  One colour throughout — AppPalette's faint #828B9C — rather than a dimmed
+  version of the live palette. At panel size the two icons are about 22px, far
+  too small to read a colour *relationship*; what carries is that one is
+  coloured and one is grey. The ring gap and the core stay, so the mark is still
+  recognisably the same object in both states.
+
+  Also why the segment is drawn at all here: dropping it would change the shape
+  between states, and a tray icon that changes shape reads as a different
+  application rather than the same one idle.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108"
+     viewBox="0 0 108 108">
+  <g transform="translate(54,54) scale(1.24) translate(-54,-54)"
+     fill="none" stroke-linecap="round">
+    <path d="M40.25,77.82 A27.5,27.5 0 1 1 67.75,77.82"
+          stroke="#828B9C" stroke-width="9"/>
+    <path d="M40.25,77.82 A27.5,27.5 0 0 1 30.18,40.25"
+          stroke="#828B9C" stroke-width="9"/>
+    <circle cx="54" cy="54" r="9.5" fill="#828B9C"/>
+  </g>
+</svg>

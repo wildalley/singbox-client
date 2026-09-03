@@ -16,6 +16,7 @@ import '../models/proxy_state.dart';
 import '../state/app_state.dart';
 import 'clock.dart';
 import 'components.dart';
+import 'notice_text.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -113,21 +114,24 @@ class _HomePageState extends State<HomePage> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: _Stat(
+                        child: _Stat.count(
                           label: l10n.homeDownloaded,
-                          value: formatBytes(traffic.downlinkTotal),
+                          value: traffic.downlinkTotal,
+                          format: formatBytes,
                         ),
                       ),
                       Expanded(
-                        child: _Stat(
+                        child: _Stat.count(
                           label: l10n.homeUploaded,
-                          value: formatBytes(traffic.uplinkTotal),
+                          value: traffic.uplinkTotal,
+                          format: formatBytes,
                         ),
                       ),
                       Expanded(
-                        child: _Stat(
+                        child: _Stat.count(
                           label: l10n.homeConnections,
-                          value: '${traffic.connectionsOut}',
+                          value: traffic.connections,
+                          format: (value) => '$value',
                         ),
                       ),
                     ],
@@ -182,8 +186,12 @@ String _stageDetail(L10n l10n, AppState state) {
         ? l10n.homeProtected
         : l10n.homeProtectedFor(
             formatUptime(clockNow().difference(proxy.since!))),
-    // Engine messages are not translatable; they arrive already redacted.
-    ProxyStage.error => proxy.message ?? l10n.homeCheckTheLogs,
+    // Engine messages are not translatable and arrive already redacted, but the
+    // failures the app detected itself travel as a marker — so both go through
+    // the notice mapping rather than being printed raw.
+    ProxyStage.error => proxy.message == null
+        ? l10n.homeCheckTheLogs
+        : noticeText(l10n, AppState.noticeFor(proxy.message!)),
     _ => state.nodes.isEmpty ? l10n.homeNoNodesYet : l10n.homeReadyToConnect,
   };
 }
@@ -321,7 +329,8 @@ class _Dashboard extends StatelessWidget {
               Expanded(
                 child: MetricCard(
                   label: l10n.homeDownload,
-                  value: formatBytes(traffic.downlinkTotal),
+                  value: traffic.downlinkTotal,
+                  format: formatBytes,
                   caption: connected ? formatRate(traffic.downlink) : '—',
                   icon: Icons.arrow_downward_rounded,
                   accent: palette.sky,
@@ -337,7 +346,8 @@ class _Dashboard extends StatelessWidget {
               Expanded(
                 child: MetricCard(
                   label: l10n.homeUpload,
-                  value: formatBytes(traffic.uplinkTotal),
+                  value: traffic.uplinkTotal,
+                  format: formatBytes,
                   caption: connected ? formatRate(traffic.uplink) : '—',
                   icon: Icons.arrow_upward_rounded,
                   accent: palette.mint,
@@ -353,7 +363,8 @@ class _Dashboard extends StatelessWidget {
               Expanded(
                 child: MetricCard(
                   label: l10n.homeConnections,
-                  value: '${traffic.connectionsOut}',
+                  value: traffic.connections,
+                  format: (value) => '$value',
                   icon: Icons.hub_outlined,
                   accent: palette.violetSoft,
                   chart: MiniBars(
@@ -369,7 +380,8 @@ class _Dashboard extends StatelessWidget {
                   label: l10n.homeMemory,
                   // The runtime only reports memory while it is running; zero
                   // would read as a measurement, so idle shows a dash.
-                  value: connected ? formatBytes(traffic.memory) : '—',
+                  value: traffic.memory,
+                  format: (value) => connected ? formatBytes(value) : '—',
                   // No caption: the transfer cards put a rate here, and memory
                   // has no second figure of its own. It carried the node's
                   // protocol and latency, which belongs to the node panel and
@@ -485,6 +497,11 @@ class _HeroCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.lg),
         child: ConsoleBackground(
           accent: accent,
+          // The field wakes up only when there is a tunnel to describe (or one
+          // is actively being established). The disconnected dashboard keeps
+          // the same grid and vignette, but stays deliberately still.
+          showSignals: connected || state.isBusy,
+          animate: connected || state.isBusy,
           child: Padding(
             padding: const EdgeInsets.all(Gap.xl),
             child: Column(
@@ -526,16 +543,15 @@ class _HeroCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: _Stat(
+                      child: _Stat.text(
                         label: l10n.homeUptime,
                         value: connected && proxy.since != null
-                            ? formatUptime(
-                                clockNow().difference(proxy.since!))
+                            ? formatUptime(clockNow().difference(proxy.since!))
                             : '—',
                       ),
                     ),
                     Expanded(
-                      child: _Stat(
+                      child: _Stat.text(
                         label: l10n.homeAvailableNodes,
                         value: l10n.homeAvailableOf(
                           _availableNodes(nodes),
@@ -598,6 +614,8 @@ class _RingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: Gap.lg),
+          _ExitAddressRow(state: state),
+          const SizedBox(height: Gap.md),
           OutlinedButton(
             onPressed: onOpenNodes,
             style: OutlinedButton.styleFrom(
@@ -606,9 +624,8 @@ class _RingCard extends StatelessWidget {
             // On the node list rather than on the selection: under Auto there is
             // no node to name, and offering to add one would be wrong with a
             // subscription already imported.
-            child: Text(state.nodes.isEmpty
-                ? l10n.homeAddNodes
-                : l10n.homeChangeNode),
+            child: Text(
+                state.nodes.isEmpty ? l10n.homeAddNodes : l10n.homeChangeNode),
           ),
         ],
       ),
@@ -733,7 +750,9 @@ class _ConnectionCard extends StatelessWidget {
               l10n.homeNoNodeSelected,
               style: Theme.of(context).textTheme.bodySmall,
             ),
-          const SizedBox(height: Gap.xl),
+          const SizedBox(height: Gap.lg),
+          _ExitAddressRow(state: state),
+          const SizedBox(height: Gap.lg),
           _ConnectButton(state: state, onOpenNodes: onOpenNodes),
         ],
       ),
@@ -768,9 +787,11 @@ class _ConnectionDialState extends State<_ConnectionDial>
     duration: Motion.slower,
   );
 
+  // MediaQuery is read here rather than in initState, and this also catches the
+  // accessibility setting being changed while the dial is on screen.
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     _syncAnimation();
   }
 
@@ -781,7 +802,13 @@ class _ConnectionDialState extends State<_ConnectionDial>
   }
 
   void _syncAnimation() {
-    if (widget.busy) {
+    // An indefinite pulse cannot be expressed as a shorter duration, so reduced
+    // motion parks it rather than speeding it up. Ring and glow stay, they just
+    // hold still. TickerMode is what stops it ticking on an inactive tab.
+    final canAnimate = widget.busy &&
+        !MediaQuery.of(context).disableAnimations &&
+        TickerMode.valuesOf(context).enabled;
+    if (canAnimate) {
       if (!_pulse.isAnimating) _pulse.repeat();
     } else {
       _pulse.stop();
@@ -916,7 +943,8 @@ class _TrafficCard extends StatelessWidget {
               Expanded(
                 child: _Metric(
                   label: l10n.homeDownload,
-                  value: formatBytes(traffic.downlinkTotal),
+                  value: traffic.downlinkTotal,
+                  format: formatBytes,
                   rate: connected ? formatRate(traffic.downlink) : '—',
                   icon: Icons.arrow_downward_rounded,
                   // Same pairing as the wide layout's flow panel: sky down,
@@ -929,7 +957,8 @@ class _TrafficCard extends StatelessWidget {
               Expanded(
                 child: _Metric(
                   label: l10n.homeUpload,
-                  value: formatBytes(traffic.uplinkTotal),
+                  value: traffic.uplinkTotal,
+                  format: formatBytes,
                   rate: connected ? formatRate(traffic.uplink) : '—',
                   icon: Icons.arrow_upward_rounded,
                   color: connected ? palette.mint : palette.faint,
@@ -968,13 +997,15 @@ class _Metric extends StatelessWidget {
   const _Metric({
     required this.label,
     required this.value,
+    required this.format,
     required this.rate,
     required this.icon,
     required this.color,
   });
 
   final String label;
-  final String value;
+  final int value;
+  final String Function(int value) format;
   final String rate;
   final IconData icon;
   final Color color;
@@ -992,8 +1023,9 @@ class _Metric extends StatelessWidget {
           ],
         ),
         const SizedBox(height: Gap.sm),
-        Text(
-          value,
+        AnimatedCount(
+          value: value,
+          format: format,
           style: monoStyle(
             size: 19,
             weight: FontWeight.w600,
@@ -1132,27 +1164,157 @@ class _ActiveNodeRow extends StatelessWidget {
 }
 
 class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
+  /// A reading that is already text: an uptime clock, a composed "N of M".
+  ///
+  /// Deliberately not tweened. The uptime is a clock — interpolating it would
+  /// walk through times that never elapsed — and the node count is a localised
+  /// sentence, not a number with a unit.
+  const _Stat.text({required this.label, required String value})
+      : text = value,
+        count = null,
+        formatter = null;
+
+  /// A number that ticks, so it counts to its new value.
+  const _Stat.count({
+    required this.label,
+    required int value,
+    required String Function(int value) format,
+  })  : count = value,
+        formatter = format,
+        text = null;
 
   final String label;
-  final String value;
+  final String? text;
+  final int? count;
+
+  /// Only set by [_Stat.count], which requires it — so the read in [build] is
+  /// guarded by which constructor ran, not by a runtime check.
+  final String Function(int value)? formatter;
 
   @override
   Widget build(BuildContext context) {
+    final style = monoStyle(
+      size: 15,
+      weight: FontWeight.w600,
+      color: context.palette.text,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 6),
-        Text(
-          value,
-          style: monoStyle(
-            size: 15,
-            weight: FontWeight.w600,
-            color: context.palette.text,
-          ),
-        ),
+        if (text case final value?)
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: style)
+        else
+          AnimatedCount(value: count!, format: formatter!, style: style),
       ],
+    );
+  }
+}
+
+/// One line reporting the address the outside world sees.
+///
+/// The reading every other figure on this screen cannot give. Bytes moving and a
+/// node selected look the same whether the traffic leaves through the node or
+/// straight out of the user's own line, so this is the only thing on the
+/// dashboard that actually answers "is it working". Hence the prominence of a
+/// row of its own rather than a line in a settings list.
+class _ExitAddressRow extends StatelessWidget {
+  const _ExitAddressRow({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final palette = context.palette;
+    final address = state.exitAddress;
+    final checking = state.isCheckingExitAddress;
+    final connected = state.isConnected;
+
+    // Four states, and they have to stay distinguishable: a dash means nothing
+    // was asked, "checking" means in flight, an address is the answer, and
+    // "unknown" means it was asked and nothing came back — which is worth
+    // telling apart from the dash, because it can mean a tunnel that carries
+    // nothing.
+    final (String text, Color colour) = switch ((connected, checking, address)) {
+      (_, true, _) => (l10n.settingsChecking, palette.faint),
+      (_, _, final found?) => (found.ip, palette.text),
+      (false, _, _) => (l10n.latencyUnknown, palette.faint),
+      _ => (l10n.homeExitUnknown, palette.amber),
+    };
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.xs, Gap.sm),
+      decoration: BoxDecoration(
+        color: palette.surface2,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.travel_explore_outlined, size: 15, color: palette.faint),
+          const SizedBox(width: Gap.sm),
+          Text(
+            l10n.homeExitIp.toUpperCase(),
+            style: Theme.of(context)
+                .textTheme
+                .labelSmall
+                ?.copyWith(letterSpacing: 1.1),
+          ),
+          const Spacer(),
+          // The address is data, so it is monospaced like every other reading
+          // here; it also stops the row twitching as digits change on a refresh.
+          Flexible(
+            child: AnimatedDefaultTextStyle(
+              duration: motionOf(context, Motion.normal),
+              curve: Motion.curve,
+              style: DefaultTextStyle.of(context)
+                  .style
+                  .merge(monoStyle(color: colour, weight: FontWeight.w600)),
+              child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+          if (address?.countryCode case final code?) ...[
+            const SizedBox(width: Gap.sm),
+            // The country is the part a user actually reads: it says whether the
+            // exit is where they picked, which a bare address does not.
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: tintFill(palette.mint),
+                borderRadius: BorderRadius.circular(AppRadius.xs),
+                border: Border.all(color: palette.mint.withValues(alpha: .22)),
+              ),
+              child: Text(
+                code,
+                style: monoStyle(
+                  size: 10,
+                  color: palette.mint,
+                  weight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+          IconButton(
+            // Left enabled while disconnected on purpose: that is how a user
+            // checks what their own address is, and the request only goes out
+            // when they ask for it.
+            onPressed: checking ? null : state.refreshExitAddress,
+            tooltip: l10n.actionRefresh,
+            visualDensity: VisualDensity.compact,
+            iconSize: 16,
+            color: palette.faint,
+            icon: checking
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -230,11 +230,35 @@ void main() {
           reason: 'the directory must be the one libbox is set up with');
     });
 
-    test('falls back to null with no host listening', () async {
-      // Which is what desktop gets, and what makes the remote rule-sets the
-      // fallback rather than a hard failure.
-      expect(await appDataDirectory(), isNull);
-      expect(await BundledRuleSets.prepare(), isNull);
+    test('derives an XDG path when no host answers', () async {
+      // Which is what desktop gets: the channel throws, and the path is worked
+      // out here instead. Pointed at a temp root so the test does not create a
+      // directory in the real ~/.local/share.
+      final root = _tempDir();
+      addTearDown(() => root.deleteSync(recursive: true));
+
+      expect(
+        await appDataDirectory(environment: {'XDG_DATA_HOME': root.path}),
+        '${root.path}/$desktopDataDirName',
+      );
+    });
+
+    test('is null when there is nowhere to derive from', () async {
+      // No XDG_DATA_HOME, no HOME. Callers treat this as "no local rule-sets"
+      // and fall back to downloading them rather than failing to start.
+      expect(await appDataDirectory(environment: const {}), isNull);
+    });
+
+    test('a relative XDG_DATA_HOME is ignored, as the spec says', () async {
+      final home = _tempDir();
+      addTearDown(() => home.deleteSync(recursive: true));
+
+      expect(
+        await appDataDirectory(
+          environment: {'XDG_DATA_HOME': 'relative/share', 'HOME': home.path},
+        ),
+        '${home.path}/.local/share/$desktopDataDirName',
+      );
     });
   });
 

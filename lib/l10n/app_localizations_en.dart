@@ -135,6 +135,34 @@ class L10nEn extends L10n {
   String get homeNoNodeSelected => 'No node selected';
 
   @override
+  String get trayShowWindow => 'Show window';
+
+  @override
+  String get trayHideWindow => 'Hide window';
+
+  @override
+  String get trayQuit => 'Quit';
+
+  @override
+  String get trayTooltipConnected => 'Connected';
+
+  @override
+  String get trayTooltipDisconnected => 'Not connected';
+
+  @override
+  String get settingsCloseToTray => 'Close to tray';
+
+  @override
+  String get settingsCloseToTrayBody =>
+      'Closing the window leaves the tunnel running. Turn this off to quit instead.';
+
+  @override
+  String get homeExitIp => 'Exit IP';
+
+  @override
+  String get homeExitUnknown => 'Unknown';
+
+  @override
   String get homeChangeNode => 'Change node';
 
   @override
@@ -292,6 +320,95 @@ class L10nEn extends L10n {
       'Nothing is proxied. The tunnel stays up but traffic goes out directly.';
 
   @override
+  String get rulesMatchOn => 'Match on';
+
+  @override
+  String get rulesSendTo => 'Send to';
+
+  @override
+  String get rulesCustom => 'Your rules';
+
+  @override
+  String get rulesCustomNote =>
+      'Matched in order, above the bundled lists. Changes apply immediately.';
+
+  @override
+  String get rulesCustomEmpty => 'No rules of your own yet';
+
+  @override
+  String get rulesCustomEmptyBody =>
+      'Add one to send a single domain, address, or port a different way.';
+
+  @override
+  String get rulesCustomAdd => 'Add rule';
+
+  @override
+  String get rulesCustomEdit => 'Edit rule';
+
+  @override
+  String get rulesMatcherDomain => 'Domain';
+
+  @override
+  String get rulesMatcherDomainSuffix => 'Domain and subdomains';
+
+  @override
+  String get rulesMatcherDomainKeyword => 'Domain contains';
+
+  @override
+  String get rulesMatcherIpCidr => 'IP or CIDR';
+
+  @override
+  String get rulesMatcherPort => 'Port';
+
+  @override
+  String get rulesMatcherProcessName => 'Process name';
+
+  @override
+  String get rulesTargetProxy => 'Proxy';
+
+  @override
+  String get rulesTargetDirect => 'Direct';
+
+  @override
+  String get rulesTargetBlock => 'Block';
+
+  @override
+  String get rulesValueHintDomain => 'example.com';
+
+  @override
+  String get rulesValueHintKeyword => 'tracker';
+
+  @override
+  String get rulesValueHintIpCidr => '10.0.0.0/8';
+
+  @override
+  String get rulesValueHintPort => '443';
+
+  @override
+  String get rulesValueHintProcess => 'curl';
+
+  @override
+  String get rulesProblemEmpty => 'Enter a value';
+
+  @override
+  String get rulesProblemPort => 'Must be a port from 1 to 65535';
+
+  @override
+  String get rulesProblemCidr => 'Must be an IP address or CIDR block';
+
+  @override
+  String get rulesProblemUrl => 'Enter a hostname, not a URL';
+
+  @override
+  String get rulesRuleDisabled => 'Off';
+
+  @override
+  String get rulesMoveUp => 'Move up';
+
+  @override
+  String get rulesMoveDown => 'Move down';
+
+  @override
   String get rulesActive => 'Active rules';
 
   @override
@@ -369,6 +486,9 @@ class L10nEn extends L10n {
   String get logsCopyAll => 'Copy all';
 
   @override
+  String get logsClear => 'Clear logs';
+
+  @override
   String get logsCopied => 'Logs copied';
 
   @override
@@ -412,6 +532,15 @@ class L10nEn extends L10n {
   String get settingsProxy => 'Proxy';
 
   @override
+  String get settingsProxyMode => 'Proxy mode';
+
+  @override
+  String get settingsProxyModeTun => 'TUN';
+
+  @override
+  String get settingsProxyModeSystemProxy => 'System proxy';
+
+  @override
   String get settingsTunStack => 'TUN stack';
 
   @override
@@ -419,7 +548,7 @@ class L10nEn extends L10n {
 
   @override
   String get settingsSystemProxyBody =>
-      'Also expose a proxy on the tunnel for apps that ignore the VPN';
+      'Expose the local proxy; on Windows, also enable it in WinINet';
 
   @override
   String get settingsStrictRoute => 'Strict route';
@@ -664,6 +793,20 @@ class L10nEn extends L10n {
   @override
   String get noticeRuleSetsUnavailable =>
       'This platform has no local rule sets to update';
+
+  @override
+  String get noticeEngineMissing =>
+      'No sing-box binary found. Install sing-box, or point SINGBOX_BINARY at one.';
+
+  @override
+  String noticeEngineTooOld(String version) {
+    return 'sing-box $version is too old for this config; 1.12 or newer is needed.';
+  }
+
+  @override
+  String noticeTunUnprivileged(String binary) {
+    return 'TUN was not authorized. Connect again to get the prompt, grant it with: sudo setcap cap_net_admin,cap_net_raw+ep $binary — or switch to system proxy mode.';
+  }
 
   @override
   String platformUnsupported(String platform) {

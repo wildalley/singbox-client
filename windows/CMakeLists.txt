@@ -102,6 +102,17 @@ install(CODE "
 install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
 
+# The Windows runtime is a standalone sing-box process. CI downloads the
+# pinned release into runner/resources before invoking Flutter; local UI-only
+# builds remain valid when that directory is absent.
+set(SINGBOX_RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/runner/resources")
+if(EXISTS "${SINGBOX_RESOURCE_DIR}")
+  install(DIRECTORY "${SINGBOX_RESOURCE_DIR}/"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime
+    FILES_MATCHING PATTERN "*.exe" PATTERN "*.dll")
+endif()
+
 # Install the AOT library on non-Debug builds only.
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release

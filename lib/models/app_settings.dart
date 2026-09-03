@@ -81,9 +81,34 @@ enum TunStack {
       );
 }
 
+/// How traffic gets into the tunnel.
+///
+/// [systemProxy] is the default because it is the mode that works everywhere
+/// without asking for anything: no tun is rendered, traffic arrives through the
+/// loopback `mixed` inbound every config already carries, and the desktop's own
+/// proxy settings point applications at it. The cost is that it only catches
+/// what honours those settings, and no UDP.
+///
+/// [tun] takes everything at the network layer instead, which needs a
+/// privileged interface: free on Android once the VpnService dialog is
+/// accepted, `CAP_NET_ADMIN` on the desktop, where the Linux controller asks
+/// for it through polkit. Android renders a tun regardless of what is stored
+/// here — see [ConfigBuilder] — so the default only decides what the desktop
+/// does on a fresh install.
+enum ProxyMode {
+  tun,
+  systemProxy;
+
+  static ProxyMode fromName(String? value) => ProxyMode.values.firstWhere(
+        (item) => item.name == value,
+        orElse: () => ProxyMode.systemProxy,
+      );
+}
+
 class AppSettings {
   const AppSettings({
     this.routingMode = RoutingMode.rule,
+    this.proxyMode = ProxyMode.systemProxy,
     this.mtu = 9000,
     this.ipv6 = false,
     this.strictRoute = false,
@@ -97,11 +122,16 @@ class AppSettings {
     this.logLevel = LogLevel.info,
     this.themeMode = AppThemeMode.system,
     this.language = AppLanguage.system,
+    this.closeToTray = true,
     this.perAppProxyEnabled = false,
     this.perAppProxyBypass = const [],
   });
 
   final RoutingMode routingMode;
+
+  /// Which inbound carries traffic on the desktop. Android ignores it and always
+  /// renders a tun, since its VpnService has nothing else to carry.
+  final ProxyMode proxyMode;
   final int mtu;
   final bool ipv6;
   final bool strictRoute;
@@ -124,6 +154,14 @@ class AppSettings {
   /// Presentation only; neither affects the rendered sing-box config.
   final AppThemeMode themeMode;
   final AppLanguage language;
+
+  /// Closing the window hides it to the tray instead of quitting.
+  ///
+  /// Desktop only, and on by default: a proxy is something you leave running,
+  /// and the window is how you check on it rather than the thing itself. Off,
+  /// the close button quits — which stops the tunnel and puts the desktop's
+  /// proxy settings back, the same as quitting from the tray.
+  final bool closeToTray;
 
   /// When enabled, [perAppProxyBypass] packages are excluded from the tunnel.
   final bool perAppProxyEnabled;
@@ -180,6 +218,7 @@ class AppSettings {
 
   AppSettings copyWith({
     RoutingMode? routingMode,
+    ProxyMode? proxyMode,
     int? mtu,
     bool? ipv6,
     bool? strictRoute,
@@ -193,11 +232,13 @@ class AppSettings {
     LogLevel? logLevel,
     AppThemeMode? themeMode,
     AppLanguage? language,
+    bool? closeToTray,
     bool? perAppProxyEnabled,
     List<String>? perAppProxyBypass,
   }) {
     return AppSettings(
       routingMode: routingMode ?? this.routingMode,
+      proxyMode: proxyMode ?? this.proxyMode,
       mtu: mtu ?? this.mtu,
       ipv6: ipv6 ?? this.ipv6,
       strictRoute: strictRoute ?? this.strictRoute,
@@ -211,6 +252,7 @@ class AppSettings {
       logLevel: logLevel ?? this.logLevel,
       themeMode: themeMode ?? this.themeMode,
       language: language ?? this.language,
+      closeToTray: closeToTray ?? this.closeToTray,
       perAppProxyEnabled: perAppProxyEnabled ?? this.perAppProxyEnabled,
       perAppProxyBypass: perAppProxyBypass ?? this.perAppProxyBypass,
     );
@@ -218,6 +260,7 @@ class AppSettings {
 
   Map<String, dynamic> toJson() => {
         'routing_mode': routingMode.name,
+        'proxy_mode': proxyMode.name,
         'mtu': mtu,
         'ipv6': ipv6,
         'strict_route': strictRoute,
@@ -230,6 +273,7 @@ class AppSettings {
         'system_proxy': systemProxy,
         'log_level': logLevel.name,
         'theme_mode': themeMode.name,
+        'close_to_tray': closeToTray,
         if (language.code != null) 'language': language.code,
         'per_app_proxy_enabled': perAppProxyEnabled,
         'per_app_proxy_bypass': perAppProxyBypass,
@@ -237,6 +281,7 @@ class AppSettings {
 
   static AppSettings fromJson(Map<String, dynamic> json) => AppSettings(
         routingMode: RoutingMode.fromName(json['routing_mode'] as String?),
+        proxyMode: ProxyMode.fromName(json['proxy_mode'] as String?),
         mtu: (json['mtu'] as num?)?.toInt() ?? 9000,
         ipv6: json['ipv6'] as bool? ?? false,
         strictRoute: json['strict_route'] as bool? ?? false,
@@ -250,6 +295,9 @@ class AppSettings {
         systemProxy: json['system_proxy'] as bool? ?? false,
         logLevel: LogLevel.fromName(json['log_level'] as String?),
         themeMode: AppThemeMode.fromName(json['theme_mode'] as String?),
+        // Absent in settings written before the tray existed, and the default
+        // is the behaviour those users already had no way to turn off.
+        closeToTray: json['close_to_tray'] as bool? ?? true,
         language: AppLanguage.fromCode(json['language'] as String?),
         perAppProxyEnabled: json['per_app_proxy_enabled'] as bool? ?? false,
         perAppProxyBypass: switch (json['per_app_proxy_bypass']) {

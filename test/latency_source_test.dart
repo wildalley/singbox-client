@@ -2,8 +2,9 @@
 ///
 /// Two measurements share one button. Connected, the engine URL-tests the
 /// selector group and reports what a real request through each proxy cost;
-/// disconnected, there is no tunnel to measure through, so each node's server
-/// address gets a TCP handshake. These tests hold the boundary between them:
+/// disconnected, there is no tunnel to measure through, so TCP-based nodes get
+/// a TCP handshake while UDP/QUIC nodes remain untested. These tests hold the
+/// boundary between them:
 /// which path runs, how the engine's tag-keyed results find their way back to
 /// nodes, and what happens to members the engine never reports.
 library;

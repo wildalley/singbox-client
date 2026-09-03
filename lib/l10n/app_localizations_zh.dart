@@ -134,6 +134,33 @@ class L10nZh extends L10n {
   String get homeNoNodeSelected => '未选择节点';
 
   @override
+  String get trayShowWindow => '显示窗口';
+
+  @override
+  String get trayHideWindow => '隐藏窗口';
+
+  @override
+  String get trayQuit => '退出';
+
+  @override
+  String get trayTooltipConnected => '已连接';
+
+  @override
+  String get trayTooltipDisconnected => '未连接';
+
+  @override
+  String get settingsCloseToTray => '关闭时最小化到托盘';
+
+  @override
+  String get settingsCloseToTrayBody => '关闭窗口后隧道继续运行。关掉这个开关则改为直接退出。';
+
+  @override
+  String get homeExitIp => '出口 IP';
+
+  @override
+  String get homeExitUnknown => '无法获取';
+
+  @override
   String get homeChangeNode => '更换节点';
 
   @override
@@ -275,6 +302,93 @@ class L10nZh extends L10n {
   String get rulesModeDirectBody => '不走代理。隧道保持开启,但流量直接出网。';
 
   @override
+  String get rulesMatchOn => '匹配方式';
+
+  @override
+  String get rulesSendTo => '走向';
+
+  @override
+  String get rulesCustom => '自定义规则';
+
+  @override
+  String get rulesCustomNote => '按顺序匹配，优先于内置规则集。改动立即生效。';
+
+  @override
+  String get rulesCustomEmpty => '还没有自定义规则';
+
+  @override
+  String get rulesCustomEmptyBody => '添加一条，让某个域名、地址或端口走不同的路径。';
+
+  @override
+  String get rulesCustomAdd => '添加规则';
+
+  @override
+  String get rulesCustomEdit => '编辑规则';
+
+  @override
+  String get rulesMatcherDomain => '域名';
+
+  @override
+  String get rulesMatcherDomainSuffix => '域名及子域名';
+
+  @override
+  String get rulesMatcherDomainKeyword => '域名包含';
+
+  @override
+  String get rulesMatcherIpCidr => 'IP 或 CIDR';
+
+  @override
+  String get rulesMatcherPort => '端口';
+
+  @override
+  String get rulesMatcherProcessName => '进程名';
+
+  @override
+  String get rulesTargetProxy => '代理';
+
+  @override
+  String get rulesTargetDirect => '直连';
+
+  @override
+  String get rulesTargetBlock => '拦截';
+
+  @override
+  String get rulesValueHintDomain => 'example.com';
+
+  @override
+  String get rulesValueHintKeyword => 'tracker';
+
+  @override
+  String get rulesValueHintIpCidr => '10.0.0.0/8';
+
+  @override
+  String get rulesValueHintPort => '443';
+
+  @override
+  String get rulesValueHintProcess => 'curl';
+
+  @override
+  String get rulesProblemEmpty => '请填写内容';
+
+  @override
+  String get rulesProblemPort => '需填 1 到 65535 之间的端口';
+
+  @override
+  String get rulesProblemCidr => '需填 IP 地址或 CIDR 网段';
+
+  @override
+  String get rulesProblemUrl => '请填主机名，不要填网址';
+
+  @override
+  String get rulesRuleDisabled => '已停用';
+
+  @override
+  String get rulesMoveUp => '上移';
+
+  @override
+  String get rulesMoveDown => '下移';
+
+  @override
   String get rulesActive => '生效中的规则';
 
   @override
@@ -350,6 +464,9 @@ class L10nZh extends L10n {
   String get logsCopyAll => '复制全部';
 
   @override
+  String get logsClear => '清空日志';
+
+  @override
   String get logsCopied => '日志已复制';
 
   @override
@@ -385,13 +502,22 @@ class L10nZh extends L10n {
   String get settingsProxy => '代理';
 
   @override
+  String get settingsProxyMode => '代理模式';
+
+  @override
+  String get settingsProxyModeTun => 'TUN';
+
+  @override
+  String get settingsProxyModeSystemProxy => '系统代理';
+
+  @override
   String get settingsTunStack => 'TUN 网络栈';
 
   @override
   String get settingsSystemProxy => '系统 HTTP 代理';
 
   @override
-  String get settingsSystemProxyBody => '同时在隧道上开放代理端口,供忽略 VPN 的应用使用';
+  String get settingsSystemProxyBody => '开放本地代理；Windows 同时启用系统代理';
 
   @override
   String get settingsStrictRoute => '严格路由';
@@ -599,6 +725,20 @@ class L10nZh extends L10n {
 
   @override
   String get noticeRuleSetsUnavailable => '当前平台没有本地规则集可更新';
+
+  @override
+  String get noticeEngineMissing =>
+      '找不到 sing-box 可执行文件。请先安装 sing-box,或用 SINGBOX_BINARY 指向一个。';
+
+  @override
+  String noticeEngineTooOld(String version) {
+    return 'sing-box $version 版本过旧,当前配置需要 1.12 或更新的版本。';
+  }
+
+  @override
+  String noticeTunUnprivileged(String binary) {
+    return 'TUN 未获授权。可重新连接再次弹出授权框,或执行 sudo setcap cap_net_admin,cap_net_raw+ep $binary,也可改用系统代理模式。';
+  }
 
   @override
   String platformUnsupported(String platform) {

@@ -48,6 +48,15 @@
   "homeUpload": "Upload",
   "homeActiveNode": "Active node",
   "homeNoNodeSelected": "No node selected",
+  "trayShowWindow": "Show window",
+  "trayHideWindow": "Hide window",
+  "trayQuit": "Quit",
+  "trayTooltipConnected": "Connected",
+  "trayTooltipDisconnected": "Not connected",
+  "settingsCloseToTray": "Close to tray",
+  "settingsCloseToTrayBody": "Closing the window leaves the tunnel running. Turn this off to quit instead.",
+  "homeExitIp": "Exit IP",
+  "homeExitUnknown": "Unknown",
   "homeChangeNode": "Change node",
   "homeSession": "Session",
   "homeTotals": "Totals",
@@ -133,6 +142,35 @@
   "rulesModeGlobalBody": "Everything goes through the proxy.",
   "rulesModeRuleBody": "Mainland China sites and IPs stay direct, everything else is proxied.",
   "rulesModeDirectBody": "Nothing is proxied. The tunnel stays up but traffic goes out directly.",
+  "rulesMatchOn": "Match on",
+  "rulesSendTo": "Send to",
+  "rulesCustom": "Your rules",
+  "rulesCustomNote": "Matched in order, above the bundled lists. Changes apply immediately.",
+  "rulesCustomEmpty": "No rules of your own yet",
+  "rulesCustomEmptyBody": "Add one to send a single domain, address, or port a different way.",
+  "rulesCustomAdd": "Add rule",
+  "rulesCustomEdit": "Edit rule",
+  "rulesMatcherDomain": "Domain",
+  "rulesMatcherDomainSuffix": "Domain and subdomains",
+  "rulesMatcherDomainKeyword": "Domain contains",
+  "rulesMatcherIpCidr": "IP or CIDR",
+  "rulesMatcherPort": "Port",
+  "rulesMatcherProcessName": "Process name",
+  "rulesTargetProxy": "Proxy",
+  "rulesTargetDirect": "Direct",
+  "rulesTargetBlock": "Block",
+  "rulesValueHintDomain": "example.com",
+  "rulesValueHintKeyword": "tracker",
+  "rulesValueHintIpCidr": "10.0.0.0/8",
+  "rulesValueHintPort": "443",
+  "rulesValueHintProcess": "curl",
+  "rulesProblemEmpty": "Enter a value",
+  "rulesProblemPort": "Must be a port from 1 to 65535",
+  "rulesProblemCidr": "Must be an IP address or CIDR block",
+  "rulesProblemUrl": "Enter a hostname, not a URL",
+  "rulesRuleDisabled": "Off",
+  "rulesMoveUp": "Move up",
+  "rulesMoveDown": "Move down",
   "rulesActive": "Active rules",
   "rulesDnsInterception": "DNS interception",
   "rulesDnsInterceptionBody": "Queries are answered by the built-in resolver",
@@ -176,6 +214,7 @@
   "logsFollowing": "Following",
   "logsPaused": "Paused",
   "logsCopyAll": "Copy all",
+  "logsClear": "Clear logs",
   "logsCopied": "Logs copied",
   "logsNoneYet": "No logs yet",
   "logsNothingLogged": "Nothing logged yet",
@@ -194,9 +233,15 @@
   "settingsAddSubscription": "Add subscription or nodes",
   "settingsAddSubscriptionBody": "URL, share links, or a sing-box config",
   "settingsProxy": "Proxy",
+  "settingsProxyMode": "Proxy mode",
+  "settingsProxyModeTun": "TUN",
+  "settingsProxyModeSystemProxy": "System proxy",
+  "@settingsProxyModeSystemProxy": {
+    "description": "A local mixed inbound plus the desktop's proxy settings, no capability needed."
+  },
   "settingsTunStack": "TUN stack",
   "settingsSystemProxy": "System HTTP proxy",
-  "settingsSystemProxyBody": "Also expose a proxy on the tunnel for apps that ignore the VPN",
+  "settingsSystemProxyBody": "Expose the local proxy; on Windows, also enable it in WinINet",
   "settingsStrictRoute": "Strict route",
   "settingsStrictRouteBody": "Block traffic that tries to escape the tunnel",
   "settingsRouting": "Routing",
@@ -347,6 +392,28 @@
   },
   "noticeRuleSetsUpdateFailed": "Could not update the rule sets; keeping the current lists",
   "noticeRuleSetsUnavailable": "This platform has no local rule sets to update",
+  "noticeEngineMissing": "No sing-box binary found. Install sing-box, or point SINGBOX_BINARY at one.",
+  "@noticeEngineMissing": {
+    "description": "Linux only: the desktop runtime supervises the system's sing-box rather than bundling it."
+  },
+  "noticeEngineTooOld": "sing-box {version} is too old for this config; 1.12 or newer is needed.",
+  "@noticeEngineTooOld": {
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.9.3"
+      }
+    }
+  },
+  "noticeTunUnprivileged": "TUN was not authorized. Connect again to get the prompt, grant it with: sudo setcap cap_net_admin,cap_net_raw+ep {binary} \u2014 or switch to system proxy mode.",
+  "@noticeTunUnprivileged": {
+    "placeholders": {
+      "binary": {
+        "type": "String",
+        "example": "/usr/bin/sing-box"
+      }
+    }
+  },
   "platformUnsupported": "The {platform} runtime is not implemented yet. Config rendering and node management still work.",
   "@platformUnsupported": {
     "placeholders": {

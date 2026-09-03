@@ -28,6 +28,7 @@ class FakeProxyController implements ProxyController {
   final startedConfigs = <String>[];
   final selectedOutbounds = <String>[];
   var stopCount = 0;
+  var clearLogsCount = 0;
   var urlTestCount = 0;
 
   /// When set, [urlTest] throws instead of reporting, standing in for a tunnel
@@ -87,9 +88,22 @@ class FakeProxyController implements ProxyController {
     emit(ProxyState.disconnected);
   }
 
+  /// Configs handed to [reload], kept apart from [startedConfigs].
+  ///
+  /// Separate lists because the two mean different things: a start is a tunnel
+  /// coming up, a reload is a running tunnel being handed new routing and losing
+  /// its connections. A test asserting "this must not reload" cannot say so
+  /// against a list that also counts starts.
+  final reloadedConfigs = <String>[];
+
+  @override
+  Future<void> clearLogs() async {
+    clearLogsCount++;
+  }
+
   @override
   Future<void> reload(String configJson) async =>
-      startedConfigs.add(configJson);
+      reloadedConfigs.add(configJson);
 
   @override
   Future<void> selectOutbound(String outboundTag) async =>
@@ -110,6 +124,17 @@ class FakeProxyController implements ProxyController {
     _traffic.close();
     _logs.close();
     _groups.close();
+  }
+
+  /// Records that the app asked for an orderly teardown, which is the whole
+  /// point of the method: on the desktop it is what puts the proxy settings
+  /// back, and a quit path that skips it leaves the machine offline.
+  var didShutdown = false;
+
+  @override
+  Future<void> shutdown() async {
+    didShutdown = true;
+    dispose();
   }
 }
 
@@ -186,8 +211,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(harness.controller.startedConfigs, hasLength(1));
-    // The config the UI sends must be the real thing, not a placeholder.
-    expect(harness.controller.startedConfigs.single, contains('"type": "tun"'));
+    // The config the UI sends must be the real thing, not a placeholder. The
+    // mixed inbound rather than the tun: the default mode is system proxy, which
+    // renders no tun, and this is the inbound both modes always carry.
+    expect(harness.controller.startedConfigs.single, contains('"type": "mixed"'));
     expect(harness.controller.startedConfigs.single, contains('a.example.com'));
     expect(find.text('Connected'), findsWidgets);
     expect(find.text('Disconnect'), findsOneWidget);
@@ -267,7 +294,8 @@ void main() {
     expect(texts, isNotEmpty, reason: 'the error should reach the screen');
     for (final text in texts) {
       expect(text.maxLines, isNotNull,
-          reason: 'engine text must be clamped: ${text.data?.substring(0, 40)}');
+          reason:
+              'engine text must be clamped: ${text.data?.substring(0, 40)}');
       expect(text.overflow, TextOverflow.ellipsis);
     }
   });
@@ -328,6 +356,47 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('started at tun0'), findsOneWidget);
+  });
+
+  testWidgets('logs can be cleared without restarting the tunnel',
+      (tester) async {
+    final harness = await buildState(nodes: [node('a', 'Tokyo')]);
+    addTearDown(harness.state.dispose);
+
+    await tester.pumpWidget(SingBoxApp(state: harness.state));
+    await tester.pumpAndSettle();
+    harness.controller.emitLog('connection failed');
+    await tester.pump(const Duration(milliseconds: 120));
+
+    await tester.tap(find.byIcon(Icons.receipt_long_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('connection failed'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
+    await tester.pumpAndSettle();
+
+    expect(harness.state.logs, isEmpty);
+    expect(harness.controller.clearLogsCount, 1);
+    expect(find.text('No logs yet'), findsOneWidget);
+  });
+
+  testWidgets('log bursts stay bounded and do not rebuild for every line',
+      (tester) async {
+    final harness = await buildState(nodes: [node('a', 'Tokyo')]);
+    addTearDown(harness.state.dispose);
+
+    await tester.pumpWidget(SingBoxApp(state: harness.state));
+    await tester.pumpAndSettle();
+    var notifications = 0;
+    harness.state.addListener(() => notifications++);
+
+    for (var index = 0; index < 700; index++) {
+      harness.controller.emitLog('connection failed $index');
+    }
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(harness.state.logs, hasLength(500));
+    expect(notifications, lessThan(10));
   });
 
   testWidgets('log lines arrive without their terminal colouring',

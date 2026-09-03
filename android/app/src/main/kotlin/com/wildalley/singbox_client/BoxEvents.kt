@@ -1,5 +1,7 @@
 package com.wildalley.singbox_client
 
+import android.os.SystemClock
+
 /**
  * Single place the service and the Flutter plugin agree on for runtime state.
  *
@@ -36,6 +38,15 @@ object BoxEvents {
     @Volatile
     var since: Long? = null
         private set
+
+    // A broken endpoint can make sing-box emit the same error many times per
+    // second.  EventChannel posts each event to Flutter's main thread, so an
+    // unbounded stream can starve the UI before Dart gets a chance to render.
+    private const val LOG_WINDOW_MILLIS = 1_000L
+    private const val MAX_LOG_EVENTS_PER_WINDOW = 60
+    private var logWindowStartedAt = 0L
+    private var logEventsInWindow = 0
+    private var suppressedLogEvents = 0
 
     fun setListener(value: Listener?) {
         listener = value
@@ -78,8 +89,37 @@ object BoxEvents {
         )
     }
 
+    @Synchronized
     fun emitLog(message: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (logWindowStartedAt == 0L || now - logWindowStartedAt >= LOG_WINDOW_MILLIS) {
+            if (suppressedLogEvents > 0) {
+                emit(
+                    mapOf(
+                        "type" to "log",
+                        "message" to "WARN log stream: $suppressedLogEvents lines suppressed",
+                    )
+                )
+            }
+            logWindowStartedAt = now
+            logEventsInWindow = 0
+            suppressedLogEvents = 0
+        }
+
+        if (logEventsInWindow >= MAX_LOG_EVENTS_PER_WINDOW) {
+            suppressedLogEvents++
+            return
+        }
+        logEventsInWindow++
         emit(mapOf("type" to "log", "message" to message))
+    }
+
+    /** Resets bridge-side counters after the engine log buffer is cleared. */
+    @Synchronized
+    fun resetLogThrottle() {
+        logWindowStartedAt = 0L
+        logEventsInWindow = 0
+        suppressedLogEvents = 0
     }
 
     /**

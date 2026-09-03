@@ -1,7 +1,7 @@
 name: singbox_client
 description: A premium cross-platform sing-box client UI starter.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -15,6 +15,8 @@ dependencies:
   intl: any
   http: ^1.5.0
   shared_preferences: ^2.5.3
+  tray_manager: ^0.5.3
+  window_manager: ^0.5.2
 
 flutter:
   uses-material-design: true
@@ -25,6 +27,8 @@ flutter:
     # a failed `remote` rule-set fetch as fatal at start — see
     # lib/data/rule_sets.dart. Refresh with scripts/fetch-rule-sets.sh.
     - assets/rule-sets/
+    # Tray icons, read at runtime by tray_manager (see scripts/build-icons.sh).
+    - assets/tray/
 
   fonts:
     # Variable fonts: one file covers the whole weight range.

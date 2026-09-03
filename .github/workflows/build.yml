@@ -1,8 +1,8 @@
 name: build
 
-# Produces the artifacts the README documents — a deb, an Arch .pkg.tar.zst, and
-# an arm64 APK — on runners that have the JDK, Android SDK and NDK a desktop
-# checkout usually does not.
+# Produces the artifacts the README documents — a deb, an Arch .pkg.tar.zst, an
+# arm64 APK, and a Windows x64 bundle — on runners with the platform toolchains
+# a desktop checkout usually does not.
 #
 # The APK is signed with the debug key, exactly as android/app/build.gradle.kts
 # already does. It is a test build, not a distributable one; see "Known gaps".
@@ -28,6 +28,9 @@ env:
   FLUTTER_SUPPRESS_ANALYTICS: 'true'
   # Must match the default in scripts/build-libbox.sh — it is also the cache key.
   SINGBOX_TAG: v1.13.19
+  # Official Windows archive, pinned so a future upstream replacement cannot
+  # silently change the binary shipped by this client.
+  SINGBOX_WINDOWS_SHA256: e011a4def2f5e2b143ed54adb2b1a20a6be407806ab4442f3667f1dd817a2c8d
 
 jobs:
   verify:
@@ -68,12 +71,18 @@ jobs:
 
       # clang/cmake/ninja/gtk: Flutter's Linux desktop toolchain. librsvg2-bin
       # gives scripts/package.sh rsvg-convert for the icon set.
+      #
+      # libayatana-appindicator3-dev is the tray. tray_manager's CMakeLists ends
+      # in FATAL_ERROR when neither ayatana-appindicator3-0.1 nor
+      # appindicator3-0.1 is found, so without it the Linux bundle does not build
+      # at all — it is a build dependency, not a nicety.
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev librsvg2-bin
+            libgtk-3-dev liblzma-dev librsvg2-bin \
+            libayatana-appindicator3-dev
 
       # JDK 17 exactly: scripts/build-libbox.sh rejects any other release,
       # because gomobile's generated Java targets it.
@@ -145,6 +154,66 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download sing-box runtime
+        shell: pwsh
+        run: |
+          $tag = "${{ env.SINGBOX_TAG }}"
+          $version = $tag.TrimStart('v')
+          $asset = "sing-box-$version-windows-amd64.zip"
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          $url = "https://github.com/SagerNet/sing-box/releases/download/$tag/$asset"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "${{ env.SINGBOX_WINDOWS_SHA256 }}".ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "sing-box checksum mismatch: expected $expected, got $actual"
+          }
+          $extract = Join-Path $env:RUNNER_TEMP "sing-box-extract"
+          Expand-Archive -Path $archive -DestinationPath $extract -Force
+          $core = Get-ChildItem -Path $extract -Recurse -Filter sing-box.exe |
+            Select-Object -First 1
+          if ($null -eq $core) { throw "sing-box.exe was not found in the archive" }
+          $resources = Join-Path $env:GITHUB_WORKSPACE "windows/runner/resources"
+          New-Item -ItemType Directory -Force -Path $resources | Out-Null
+          Copy-Item -Path $core.FullName -Destination (Join-Path $resources "sing-box.exe")
+          Get-ChildItem -Path $core.DirectoryName -Filter *.dll -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item -Path $_.FullName -Destination $resources -Force }
+          & (Join-Path $resources "sing-box.exe") version
+
+      # Windows runners already contain the Visual Studio C++ toolchain that
+      # Flutter's Windows runner needs. The action pins the same Flutter SDK as
+      # the Linux jobs and caches both the SDK and pub dependencies.
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          architecture: x64
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build windows --release
+
+      - name: Package Windows bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive `
+            -Path "build/windows/x64/runner/Release/*" `
+            -DestinationPath "dist/singbox-client-windows-x64-${{ github.sha }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: singbox-client-windows-${{ github.sha }}
+          path: dist/*.zip
+          if-no-files-found: error
+
   arch:
     name: pkg.tar.zst
     runs-on: ubuntu-latest
@@ -155,10 +224,14 @@ jobs:
     container: archlinux:base-devel
     steps:
       # -Syu, not -Sy: a partial upgrade is how an Arch container breaks.
+      # libayatana-appindicator carries the pkg-config file tray_manager looks
+      # for; on Arch the headers are in the same package as the library, so this
+      # one name covers both building and running.
       - name: Install the toolchain
         run: |
           pacman -Syu --needed --noconfirm \
-            git curl unzip which xz clang cmake ninja pkgconf gtk3 librsvg
+            git curl unzip which xz clang cmake ninja pkgconf gtk3 librsvg \
+            libayatana-appindicator
 
       # A container runs as root, and neither makepkg nor flutter will.
       - name: Add an unprivileged build user
@@ -209,7 +282,7 @@ jobs:
 
   release:
     name: release
-    needs: [package, arch]
+    needs: [package, windows, arch]
     # !cancelled() rather than success(): one broken artifact should not withhold
     # the others. Whatever uploaded gets attached, and the job says what came.
     if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
