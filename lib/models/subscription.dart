@@ -30,6 +30,12 @@ enum SubscriptionFailure {
 
   /// Not a subscription or config to begin with — a bad URL, a missing file.
   badSource,
+
+  /// The request exceeded its deadline after the connection was attempted.
+  timeout,
+
+  /// The response exceeded the importer memory budget.
+  responseTooLarge,
 }
 
 class Subscription {

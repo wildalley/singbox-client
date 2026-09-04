@@ -18,6 +18,26 @@ enum ProxyStage {
       this == ProxyStage.connected || this == ProxyStage.starting;
 }
 
+/// What traffic the current runtime is actually positioned to cover.
+///
+/// A connected core is not by itself proof that the host's traffic is using
+/// it. Desktop system-proxy backends can be missing or reject a write while
+/// the local mixed inbound and the sing-box process remain healthy, so the UI
+/// keeps this fact separate from [ProxyStage.connected].
+enum ProxyCoverage {
+  /// A TUN adapter is carrying host traffic.
+  tun,
+
+  /// The desktop's system proxy points at the local mixed inbound.
+  systemProxy,
+
+  /// The core is alive, but the requested desktop proxy could not be applied.
+  systemProxyUnavailable,
+
+  /// Only the local mixed inbound is available; no host-wide takeover exists.
+  localProxy,
+}
+
 /// A start failure the app detected itself, rather than engine output.
 ///
 /// Most of what [ProxyState.message] carries is the engine's own words: not
@@ -73,6 +93,8 @@ class ProxyState {
     this.stage = ProxyStage.disconnected,
     this.message,
     this.since,
+    this.sessionId,
+    this.coverage,
   });
 
   final ProxyStage stage;
@@ -82,6 +104,14 @@ class ProxyState {
 
   /// When the current connection was established.
   final DateTime? since;
+
+  /// Monotonically increasing runtime generation, when the platform can provide
+  /// one. A delayed event from an older process/session can then be ignored by
+  /// the state owner instead of changing the UI after a newer operation won.
+  final int? sessionId;
+
+  /// The traffic coverage achieved by a connected runtime, when known.
+  final ProxyCoverage? coverage;
 
   bool get isConnected => stage == ProxyStage.connected;
 

@@ -107,6 +107,18 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get homeCoverageTun => 'TUN 已启用';
+
+  @override
+  String get homeCoverageSystemProxy => '系统代理已生效';
+
+  @override
+  String get homeCoverageSystemProxyUnavailable => '核心已连接 · 系统代理不可用';
+
+  @override
+  String get homeCoverageLocalProxy => '仅本地代理';
+
+  @override
   String get homeCheckTheLogs => '查看日志';
 
   @override
@@ -716,6 +728,12 @@ class L10nZh extends L10n {
 
   @override
   String get noticeImportBadSource => '这不是可用的订阅或配置';
+
+  @override
+  String get noticeImportTimeout => '订阅地址响应超时';
+
+  @override
+  String get noticeImportTooLarge => '订阅返回内容过大';
 
   @override
   String get noticeRuleSetsUpdated => '规则集已更新,下次连接时生效';

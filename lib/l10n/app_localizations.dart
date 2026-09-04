@@ -289,6 +289,30 @@ abstract class L10n {
   /// **'Protected · {uptime}'**
   String homeProtectedFor(String uptime);
 
+  /// No description provided for @homeCoverageTun.
+  ///
+  /// In en, this message translates to:
+  /// **'TUN active'**
+  String get homeCoverageTun;
+
+  /// No description provided for @homeCoverageSystemProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'System proxy applied'**
+  String get homeCoverageSystemProxy;
+
+  /// No description provided for @homeCoverageSystemProxyUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Core connected · system proxy unavailable'**
+  String get homeCoverageSystemProxyUnavailable;
+
+  /// No description provided for @homeCoverageLocalProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Local proxy only'**
+  String get homeCoverageLocalProxy;
+
   /// No description provided for @homeCheckTheLogs.
   ///
   /// In en, this message translates to:
@@ -1096,7 +1120,7 @@ abstract class L10n {
   /// No description provided for @settingsSystemProxyBody.
   ///
   /// In en, this message translates to:
-  /// **'Also expose a proxy on the tunnel for apps that ignore the VPN'**
+  /// **'Expose the local proxy; on Windows, also enable it in WinINet'**
   String get settingsSystemProxyBody;
 
   /// No description provided for @settingsStrictRoute.
@@ -1446,6 +1470,18 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Not a usable subscription or config'**
   String get noticeImportBadSource;
+
+  /// No description provided for @noticeImportTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'The subscription took too long to respond'**
+  String get noticeImportTimeout;
+
+  /// No description provided for @noticeImportTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'The subscription response is too large'**
+  String get noticeImportTooLarge;
 
   /// The engine reads local rule-sets when it starts, so a fresh download cannot apply to a running tunnel.
   ///

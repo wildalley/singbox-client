@@ -100,6 +100,7 @@ void FlutterWindow::OnDestroy() {
   }
   std::wstring ignored;
   windows_proxy_manager_.Restore(&ignored);
+  ReleaseInstanceMutex();
 
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
@@ -164,6 +165,70 @@ void FlutterWindow::RegisterControlChannel() {
           return;
         }
 
+        if (call.method_name() == "signalElevationReady") {
+          if (SignalElevationReady()) {
+            result->Success();
+          } else {
+            result->Error("elevation_handoff",
+                          "could not acknowledge elevated bootstrap");
+          }
+          return;
+        }
+
+        if (call.method_name() == "claimNamedInstance") {
+          if (instance_mutex_ != nullptr) {
+            result->Success(flutter::EncodableValue(true));
+            return;
+          }
+
+          bool wait_for_existing = false;
+          const auto* arguments = call.arguments();
+          const auto* map = arguments == nullptr
+                                ? nullptr
+                                : std::get_if<flutter::EncodableMap>(arguments);
+          if (map != nullptr) {
+            const auto* wait = MapValue(*map, "waitForExisting");
+            if (wait != nullptr && std::holds_alternative<bool>(*wait)) {
+              wait_for_existing = std::get<bool>(*wait);
+            }
+          }
+
+          // Local keeps different interactive Windows sessions independent;
+          // the Dart socket still scopes activation to this user's data path.
+          HANDLE mutex = CreateMutexW(
+              nullptr, TRUE, L"Local\\WildAlley.SingBoxClient");
+          if (mutex == nullptr) {
+            result->Error("instance_mutex",
+                          "could not create the Windows instance mutex");
+            return;
+          }
+          const DWORD create_error = GetLastError();
+          if (create_error == ERROR_ALREADY_EXISTS) {
+            if (wait_for_existing) {
+              const DWORD wait_result = WaitForSingleObject(mutex, 10000);
+              if (wait_result == WAIT_OBJECT_0 ||
+                  wait_result == WAIT_ABANDONED) {
+                instance_mutex_ = mutex;
+                result->Success(flutter::EncodableValue(true));
+                return;
+              }
+            }
+            CloseHandle(mutex);
+            result->Success(flutter::EncodableValue(false));
+            return;
+          }
+
+          instance_mutex_ = mutex;
+          result->Success(flutter::EncodableValue(true));
+          return;
+        }
+
+        if (call.method_name() == "releaseNamedInstance") {
+          ReleaseInstanceMutex();
+          result->Success();
+          return;
+        }
+
         if (call.method_name() == "restoreSystemProxy") {
           std::wstring error;
           if (windows_proxy_manager_.Restore(&error)) {
@@ -224,4 +289,11 @@ void FlutterWindow::RegisterControlChannel() {
 
         result->NotImplemented();
       });
+}
+
+void FlutterWindow::ReleaseInstanceMutex() {
+  if (instance_mutex_ == nullptr) return;
+  ReleaseMutex(instance_mutex_);
+  CloseHandle(instance_mutex_);
+  instance_mutex_ = nullptr;
 }

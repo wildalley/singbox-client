@@ -167,6 +167,27 @@ class AppSettings {
   final bool perAppProxyEnabled;
   final List<String> perAppProxyBypass;
 
+  /// Whether changing [other] changes the JSON sent to sing-box.
+  ///
+  /// Presentation and shell preferences deliberately stay out of this check:
+  /// changing a theme, language, or close-to-tray behaviour must not interrupt
+  /// an otherwise healthy tunnel. The per-app fields are retained for storage,
+  /// but are not rendered yet, so they do not trigger a reload either.
+  bool hasSameRuntimeConfig(AppSettings other) =>
+      routingMode == other.routingMode &&
+      proxyMode == other.proxyMode &&
+      mtu == other.mtu &&
+      ipv6 == other.ipv6 &&
+      strictRoute == other.strictRoute &&
+      dnsRemote == other.dnsRemote &&
+      dnsDirect == other.dnsDirect &&
+      blockAds == other.blockAds &&
+      bypassLan == other.bypassLan &&
+      fakeIp == other.fakeIp &&
+      tunStack == other.tunStack &&
+      systemProxy == other.systemProxy &&
+      logLevel == other.logLevel;
+
   /// sing-box DNS server `type` derived from [dnsRemote]'s scheme.
   String get remoteDnsType => switch (Uri.tryParse(dnsRemote)?.scheme) {
         'tls' => 'tls',

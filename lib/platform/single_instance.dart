@@ -24,6 +24,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'app_paths.dart';
 
@@ -31,6 +32,9 @@ import 'app_paths.dart';
 /// being distinguishable from a stray connection.
 const _activate = 'activate';
 const _activationAck = 'ok';
+const _claimNamedInstance = 'claimNamedInstance';
+const _releaseNamedInstance = 'releaseNamedInstance';
+const _signalElevationReady = 'signalElevationReady';
 
 /// Passed to the elevated Windows child during a UAC handoff.
 const elevatedRestartArgument = '--elevated-restart';
@@ -41,6 +45,8 @@ const _socketName = 'instance.sock';
 /// Guards against a second instance, on the platforms that need it.
 class SingleInstance {
   const SingleInstance._();
+
+  static const _control = MethodChannel(appControlChannel);
 
   /// The listening socket held by the primary instance, so tests and shutdown
   /// can close it.
@@ -137,6 +143,39 @@ class SingleInstance {
     final port = _activationPort(path);
     final address = InternetAddress.loopbackIPv4;
 
+    // A loopback port is an activation channel, not an ownership primitive:
+    // another local service can occupy it, and a process can disappear between
+    // the probe and bind. Windows supplies a kernel-owned mutex for the latter
+    // guarantee. Keep the socket below because it is still the lightweight way
+    // for a later launch to raise the existing window.
+    final namedMutex = await _claimWindowsMutex(
+      waitForExisting: waitForExisting,
+    );
+    if (namedMutex != null) {
+      if (!namedMutex) {
+        // The mutex proves another copy is alive even when its activation
+        // endpoint is not ready. Never fall back to an unguarded launch here.
+        if (!waitForExisting) {
+          await _askToActivate(address, port, expectAck: true);
+        }
+        return false;
+      }
+
+      // We own the mutex. A port collision is harmless now: this process is
+      // still the only app instance, so leave the guard held and continue.
+      try {
+        final server = await ServerSocket.bind(address, port);
+        _server = server;
+        _serverPath = null;
+        _listen(server, onActivate);
+      } on Object {
+        // The named mutex remains the authoritative guard. A later launch may
+        // not activate this window through TCP, but it still cannot create a
+        // second runtime.
+      }
+      return true;
+    }
+
     if (waitForExisting && !await _waitForRelease(address, port)) return false;
 
     // A live instance answers with our small acknowledgement. This avoids
@@ -203,11 +242,12 @@ class SingleInstance {
     _server = null;
     final path = _serverPath;
     _serverPath = null;
-    if (server == null) return;
-    try {
-      await server.close();
-    } on Object {
-      // Already gone.
+    if (server != null) {
+      try {
+        await server.close();
+      } on Object {
+        // Already gone.
+      }
     }
     if (path != null) {
       try {
@@ -216,6 +256,47 @@ class SingleInstance {
       } on Object {
         // Someone else's now, or already removed.
       }
+    }
+    if (Platform.isWindows) {
+      try {
+        await _control.invokeMethod<void>(_releaseNamedInstance);
+      } on Object {
+        // Older runners do not own a native mutex.
+      }
+    }
+  }
+
+  /// Acknowledges the elevated child's bootstrap to the unelevated parent.
+  ///
+  /// This must run before [claim] on the elevated restart path: claiming waits
+  /// for the parent to release the native mutex, while the parent waits for
+  /// this acknowledgement before it exits. Older runners simply fall through
+  /// to the normal handoff timeout and cannot create a second owner.
+  static Future<void> signalElevationReady() async {
+    if (!Platform.isWindows) return;
+    try {
+      await _control.invokeMethod<void>(_signalElevationReady);
+    } on Object {
+      // The parent will time out and keep ownership if this runner cannot
+      // acknowledge the handoff.
+    }
+  }
+
+  /// Claims the native Windows mutex when the current runner provides it.
+  ///
+  /// `null` means an older runner (or a non-Windows host), so the socket guard
+  /// remains the compatibility fallback. `false` is different: it means the
+  /// runner positively found another owner and the caller must not continue.
+  static Future<bool?> _claimWindowsMutex({
+    required bool waitForExisting,
+  }) async {
+    if (!Platform.isWindows) return null;
+    try {
+      return await _control.invokeMethod<bool>(_claimNamedInstance, {
+        'waitForExisting': waitForExisting,
+      });
+    } on Object {
+      return null;
     }
   }
 

@@ -59,8 +59,16 @@ bool IsRunningElevated();
 
 /// Requests administrator elevation by restarting the application with UAC.
 ///
-/// Returns true if elevation was requested successfully (the current process
-/// will exit). Returns false if the user declined or elevation is unavailable.
+/// Returns true only after the elevated child has reached its Dart bootstrap
+/// and acknowledged the handoff. The current process can then exit. Returns
+/// false if the user declined, the child failed to start, or the handoff timed
+/// out.
 bool RequestElevation();
+
+/// Signals the parent process that an elevated child reached its Dart
+/// bootstrap. This is intentionally a bootstrap acknowledgement rather than a
+/// connection acknowledgement: the child still has to claim the instance
+/// mutex and start the requested runtime after the parent exits.
+bool SignalElevationReady();
 
 #endif  // RUNNER_WINDOWS_PROXY_H_

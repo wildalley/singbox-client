@@ -78,14 +78,16 @@ void main() {
 
     test('plasma counts as KDE', () {
       expect(
-        SystemProxyBackend.detect(const {'XDG_CURRENT_DESKTOP': 'plasmawayland'}),
+        SystemProxyBackend.detect(
+            const {'XDG_CURRENT_DESKTOP': 'plasmawayland'}),
         SystemProxyBackend.kde,
       );
     });
 
     test('splits the colon-separated list', () {
       expect(
-        SystemProxyBackend.detect(const {'XDG_CURRENT_DESKTOP': 'ubuntu:GNOME'}),
+        SystemProxyBackend.detect(
+            const {'XDG_CURRENT_DESKTOP': 'ubuntu:GNOME'}),
         SystemProxyBackend.gnome,
       );
     });
@@ -102,8 +104,13 @@ void main() {
     });
 
     test('the GNOME-schema desktops map to gnome, not to nothing', () {
-      for (final desktop in ['X-Cinnamon', 'MATE', 'Budgie:GNOME', 'Unity',
-        'Pantheon']) {
+      for (final desktop in [
+        'X-Cinnamon',
+        'MATE',
+        'Budgie:GNOME',
+        'Unity',
+        'Pantheon'
+      ]) {
         expect(
           SystemProxyBackend.detect({'XDG_CURRENT_DESKTOP': desktop}),
           SystemProxyBackend.gnome,
@@ -124,7 +131,8 @@ void main() {
         SystemProxyBackend.detect(const {'XDG_CURRENT_DESKTOP': 'sway'}),
         SystemProxyBackend.unsupported,
       );
-      expect(SystemProxyBackend.detect(const {}), SystemProxyBackend.unsupported);
+      expect(
+          SystemProxyBackend.detect(const {}), SystemProxyBackend.unsupported);
       expect(
         SystemProxyBackend.detect(const {'XDG_CURRENT_DESKTOP': ''}),
         SystemProxyBackend.unsupported,
@@ -134,18 +142,32 @@ void main() {
 
   group('gnome', () {
     test('enable sets the mode and all three schemas', () {
-      final commands =
-          proxy().enableCommands(host: '127.0.0.1', port: 2080);
+      final commands = proxy().enableCommands(host: '127.0.0.1', port: 2080);
       expect(commands, [
         ['gsettings', 'set', 'org.gnome.system.proxy', 'mode', "'manual'"],
-        ['gsettings', 'set', 'org.gnome.system.proxy.http', 'host',
-          "'127.0.0.1'"],
+        [
+          'gsettings',
+          'set',
+          'org.gnome.system.proxy.http',
+          'host',
+          "'127.0.0.1'"
+        ],
         ['gsettings', 'set', 'org.gnome.system.proxy.http', 'port', '2080'],
-        ['gsettings', 'set', 'org.gnome.system.proxy.https', 'host',
-          "'127.0.0.1'"],
+        [
+          'gsettings',
+          'set',
+          'org.gnome.system.proxy.https',
+          'host',
+          "'127.0.0.1'"
+        ],
         ['gsettings', 'set', 'org.gnome.system.proxy.https', 'port', '2080'],
-        ['gsettings', 'set', 'org.gnome.system.proxy.socks', 'host',
-          "'127.0.0.1'"],
+        [
+          'gsettings',
+          'set',
+          'org.gnome.system.proxy.socks',
+          'host',
+          "'127.0.0.1'"
+        ],
         ['gsettings', 'set', 'org.gnome.system.proxy.socks', 'port', '2080'],
       ]);
     });
@@ -155,9 +177,9 @@ void main() {
       final ports = commands.where((argv) => argv[3] == 'port');
       final hosts = commands.where((argv) => argv[3] == 'host');
       expect(ports.map((argv) => argv.last), everyElement('1080'),
-        reason: 'the schema types the port as an integer');
+          reason: 'the schema types the port as an integer');
       expect(hosts.map((argv) => argv.last), everyElement("'localhost'"),
-        reason: 'a string needs its own GVariant quotes');
+          reason: 'a string needs its own GVariant quotes');
     });
 
     test('restore replays the saved values verbatim', () {
@@ -187,14 +209,13 @@ void main() {
     Matcher isKdeWriter() => matches(RegExp(r'^kwriteconfig[56]$'));
 
     test('enable writes the manual mode and the space-separated addresses', () {
-      final commands =
-          proxy(backend: SystemProxyBackend.kde)
-              .enableCommands(host: '127.0.0.1', port: 2080);
+      final commands = proxy(backend: SystemProxyBackend.kde)
+          .enableCommands(host: '127.0.0.1', port: 2080);
       expect(commands, hasLength(4));
       for (final argv in commands) {
         expect(argv.first, isKdeWriter());
         expect(argv.sublist(1, 6),
-          ['--file', 'kioslaverc', '--group', 'Proxy Settings', '--key']);
+            ['--file', 'kioslaverc', '--group', 'Proxy Settings', '--key']);
       }
       expect(
         commands.map((argv) => argv.sublist(6)),
@@ -221,11 +242,12 @@ void main() {
       );
     });
 
-    test('an empty saved value restores as a delete, not as an empty write', () {
+    test('an empty saved value restores as a delete, not as an empty write',
+        () {
       final commands = proxy(backend: SystemProxyBackend.kde)
           .restoreCommands(const {'httpProxy': ''});
       expect(commands.single.sublist(6), ['httpProxy', '--delete'],
-        reason: 'writing an empty string would leave a stale entry behind');
+          reason: 'writing an empty string would leave a stale entry behind');
     });
   });
 
@@ -259,8 +281,8 @@ void main() {
       runner.stdout = (argv) => argv[1] == 'get' ? "'none'" : '';
       await proxy(stateDirectory: dir).enable(host: '127.0.0.1', port: 2080);
 
-      final decoded =
-          jsonDecode(backupFile(dir).readAsStringSync()) as Map<String, Object?>;
+      final decoded = jsonDecode(backupFile(dir).readAsStringSync())
+          as Map<String, Object?>;
       expect(decoded['backend'], 'gnome');
       expect(decoded['values'], {
         'org.gnome.system.proxy/mode': "'none'",
@@ -286,22 +308,25 @@ void main() {
 
       expect(backupFile(dir).readAsStringSync(), first);
       expect(runner.calls.where((argv) => argv[1] == 'get'), hasLength(7),
-        reason: 'the second enable must not snapshot at all');
+          reason: 'the second enable must not snapshot at all');
     });
 
-    test('a value that cannot be read is left out rather than guessed',
-        () async {
+    test('a partial snapshot prevents an unsafe proxy update', () async {
       final dir = tempDir();
-      runner.exitCode = (argv) =>
-          argv[1] == 'get' && argv[2].endsWith('.socks') ? 1 : 0;
+      runner.exitCode =
+          (argv) => argv[1] == 'get' && argv[2].endsWith('.socks') ? 1 : 0;
       runner.stdout = (argv) => argv[1] == 'get' ? "'none'" : '';
-      await proxy(stateDirectory: dir).enable(host: '127.0.0.1', port: 2080);
+      final subject = proxy(stateDirectory: dir);
+      await subject.enable(host: '127.0.0.1', port: 2080);
 
-      final decoded =
-          jsonDecode(backupFile(dir).readAsStringSync()) as Map<String, Object?>;
-      final values = decoded['values'] as Map<String, Object?>;
-      expect(values.keys, isNot(contains('org.gnome.system.proxy.socks/host')));
-      expect(values, hasLength(5));
+      expect(backupFile(dir).existsSync(), isFalse,
+          reason: 'an incomplete snapshot must not become a restore journal');
+      expect(
+        subject.warnings.any((warning) => warning.contains('snapshot failed')),
+        isTrue,
+      );
+      expect(runner.writes, isEmpty,
+          reason: 'the desktop must remain untouched when its snapshot fails');
     });
 
     test('restore replays the file and then forgets it', () async {
@@ -315,7 +340,7 @@ void main() {
       await subject.restore();
 
       expect(runner.writes.single,
-        ['gsettings', 'set', 'org.gnome.system.proxy', 'mode', "'none'"]);
+          ['gsettings', 'set', 'org.gnome.system.proxy', 'mode', "'none'"]);
       expect(backupFile(dir).existsSync(), isFalse);
     });
 
@@ -329,7 +354,7 @@ void main() {
       await proxy(stateDirectory: dir).restore();
 
       expect(runner.calls, isEmpty,
-        reason: 'KDE keys mean nothing to gsettings');
+          reason: 'KDE keys mean nothing to gsettings');
     });
 
     test('a mismatched backup does not block a fresh snapshot', () async {
@@ -342,8 +367,8 @@ void main() {
 
       await proxy(stateDirectory: dir).enable(host: '127.0.0.1', port: 2080);
 
-      final decoded =
-          jsonDecode(backupFile(dir).readAsStringSync()) as Map<String, Object?>;
+      final decoded = jsonDecode(backupFile(dir).readAsStringSync())
+          as Map<String, Object?>;
       expect(decoded['backend'], 'gnome');
     });
 
@@ -364,7 +389,7 @@ void main() {
       await subject.enable(host: '127.0.0.1', port: 2080);
       expect(runner.writes, hasLength(7));
       expect(subject.warnings, isEmpty,
-        reason: 'a disabled backup is a choice, not a failure');
+          reason: 'a disabled backup is a choice, not a failure');
     });
   });
 
@@ -376,20 +401,22 @@ void main() {
       final subject = proxy();
       await subject.enable(host: '127.0.0.1', port: 2080);
 
-      expect(subject.warnings.single, allOf(
-        contains('gsettings'),
-        contains('2'),
-        contains('No such schema'),
-      ));
+      expect(
+          subject.warnings.single,
+          allOf(
+            contains('gsettings'),
+            contains('2'),
+            contains('No such schema'),
+          ));
     });
 
     test('a missing executable is reported rather than thrown', () async {
       runner.missing = {'gsettings'};
       final subject = proxy();
       await subject.enable(host: '127.0.0.1', port: 2080);
-      // Seven reads for the snapshot and seven writes: with gsettings absent,
-      // every one of them fails, and each says so.
-      expect(subject.warnings, hasLength(14));
+      // A disabled backup means there is no reason to read a snapshot first;
+      // each attempted write still reports the missing executable.
+      expect(subject.warnings, hasLength(7));
       expect(subject.warnings.first, contains('not available'));
     });
 
@@ -397,11 +424,57 @@ void main() {
       runner.exitCode = (_) => 1;
       final subject = proxy();
       await subject.enable(host: '127.0.0.1', port: 2080);
-      expect(subject.warnings, hasLength(14));
+      expect(subject.warnings, hasLength(7));
 
       runner.exitCode = (_) => 0;
       await subject.enable(host: '127.0.0.1', port: 2080);
       expect(subject.warnings, isEmpty);
+    });
+
+    test('rolls back a partially applied proxy update', () async {
+      final dir = tempDir();
+      var failOnce = true;
+      runner.exitCode = (argv) {
+        if (failOnce && argv[1] == 'set' && argv[3] == 'port') {
+          failOnce = false;
+          return 2;
+        }
+        return 0;
+      };
+      runner.stdout = (argv) => argv[1] == 'get' ? "'none'" : '';
+
+      final subject = proxy(stateDirectory: dir);
+      await subject.enable(host: '127.0.0.1', port: 2080);
+
+      expect(subject.warnings, hasLength(1));
+      expect(backupFile(dir).existsSync(), isFalse,
+          reason: 'a successful rollback can remove its journal');
+      expect(
+        runner.writes.any((argv) =>
+            argv.length == 5 &&
+            argv[0] == 'gsettings' &&
+            argv[1] == 'set' &&
+            argv[2] == 'org.gnome.system.proxy' &&
+            argv[3] == 'mode' &&
+            argv[4] == "'none'"),
+        isTrue,
+        reason: 'the old mode was replayed after a later write failed',
+      );
+    });
+
+    test('keeps the journal when restoring the desktop fails', () async {
+      final dir = tempDir();
+      runner.stdout = (argv) => argv[1] == 'get' ? "'none'" : '';
+      final subject = proxy(stateDirectory: dir);
+      await subject.enable(host: '127.0.0.1', port: 2080);
+      expect(backupFile(dir).existsSync(), isTrue);
+
+      runner.exitCode = (argv) => argv.last == "'none'" ? 2 : 0;
+      await subject.restore();
+
+      expect(subject.warnings, isNotEmpty);
+      expect(backupFile(dir).existsSync(), isTrue,
+          reason: 'a later launch needs the snapshot to retry restoration');
     });
   });
 }

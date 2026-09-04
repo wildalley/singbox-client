@@ -39,6 +39,11 @@ object BoxEvents {
     var since: Long? = null
         private set
 
+    /** Increases for every new start/reload generation of the service. */
+    @Volatile
+    var session: Long = 0L
+        private set
+
     // A broken endpoint can make sing-box emit the same error many times per
     // second.  EventChannel posts each event to Flutter's main thread, so an
     // unbounded stream can starve the UI before Dart gets a chance to render.
@@ -59,11 +64,19 @@ object BoxEvents {
         emit(statusMap())
     }
 
+    /** Marks callbacks from a previous engine generation as stale. */
+    @Synchronized
+    fun beginSession() {
+        session += 1L
+        since = null
+    }
+
     fun statusMap(): Map<String, Any?> = mapOf(
         "type" to "status",
         "stage" to stage.wire,
         "message" to message,
         "since" to since,
+        "session" to session,
     )
 
     fun emitTraffic(

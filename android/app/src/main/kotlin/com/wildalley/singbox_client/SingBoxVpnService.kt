@@ -112,6 +112,9 @@ class SingBoxVpnService : VpnService() {
 
     private fun startTunnel(config: String) {
         synchronized(lock) {
+            // A reload is a new logical generation too. Flutter may receive a
+            // delayed status callback from the previous config after this call.
+            BoxEvents.beginSession()
             if (commandServer != null) {
                 // Already running: treat this as a config change.
                 acceptingLogs = true
@@ -175,6 +178,11 @@ class SingBoxVpnService : VpnService() {
     fun reload(config: String) {
         synchronized(lock) {
             val server = commandServer ?: return
+            // Reload callbacks belong to a new logical runtime generation too.
+            // A fresh Flutter engine must not let a delayed status from the
+            // previous config win over the current one.
+            BoxEvents.beginSession()
+            acceptingLogs = true
             runCatching { server.startOrReloadService(config, OverrideOptions()) }
                 .onFailure { fail(it) }
         }

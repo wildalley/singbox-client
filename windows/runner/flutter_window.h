@@ -28,6 +28,7 @@ class FlutterWindow : public Win32Window {
 
  private:
   void RegisterControlChannel();
+  void ReleaseInstanceMutex();
 
   // The project to run.
   flutter::DartProject project_;
@@ -41,6 +42,7 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<
       flutter::MethodChannel<flutter::EncodableValue>> control_channel_;
   WindowsProxyManager windows_proxy_manager_;
+  HANDLE instance_mutex_ = nullptr;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

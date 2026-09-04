@@ -190,9 +190,8 @@ class DesktopShell with TrayListener, WindowListener {
           // the window with, so this item is the whole entry point.
           MenuItem(
             key: _Item.toggleWindow,
-            label: status.hidden
-                ? strings.trayShowWindow
-                : strings.trayHideWindow,
+            label:
+                status.hidden ? strings.trayShowWindow : strings.trayHideWindow,
           ),
           MenuItem.separator(),
           MenuItem(
@@ -375,11 +374,11 @@ class DesktopShell with TrayListener, WindowListener {
     _quitting = true;
     try {
       await dispose();
-      // Before the process goes, so the next launch does not have to recognise
-      // this one's socket as stale.
-      await SingleInstance.release();
       await state.shutdown();
     } finally {
+      // Release the guard last. A replacement process must not enter while this
+      // one is still stopping its core or restoring the desktop proxy.
+      await SingleInstance.release();
       // destroy() rather than close(): close would come back through
       // onWindowClose, which preventClose has told the window not to honour.
       //

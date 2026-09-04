@@ -39,6 +39,10 @@
       }
     }
   },
+  "homeCoverageTun": "TUN active",
+  "homeCoverageSystemProxy": "System proxy applied",
+  "homeCoverageSystemProxyUnavailable": "Core connected · system proxy unavailable",
+  "homeCoverageLocalProxy": "Local proxy only",
   "homeCheckTheLogs": "Check the logs",
   "homeNoNodesYet": "No nodes yet",
   "homeAddNodes": "Add nodes",
@@ -386,6 +390,8 @@
   },
   "noticeImportUnusable": "No usable nodes in what came back",
   "noticeImportBadSource": "Not a usable subscription or config",
+  "noticeImportTimeout": "The subscription took too long to respond",
+  "noticeImportTooLarge": "The subscription response is too large",
   "noticeRuleSetsUpdated": "Rule sets updated — active at the next connect",
   "@noticeRuleSetsUpdated": {
     "description": "The engine reads local rule-sets when it starts, so a fresh download cannot apply to a running tunnel."

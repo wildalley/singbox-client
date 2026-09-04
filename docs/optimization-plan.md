@@ -4,6 +4,23 @@
 > 评审范围：Android、Linux、Windows 运行时，桌面 Shell，配置与订阅数据流，以及状态和持久化生命周期。
 > 文档性质：代码评审与后续计划；本次不包含运行逻辑修改。
 
+## 实施进度
+
+评审后的结构重构已落地，计划中的以下项已在 `ed9cce5` 之后完成：
+
+- **运行时与持久化串行、状态拆分**：`lib/state` 按关注点拆出 `app_state_config`、`app_state_connection`、
+  `app_state_import`、`app_state_latency`、`app_state_notice`、`app_state_rules`、`app_state_runtime`，
+  取代单一大 `AppState`。
+- **共享配置事实（第一/三阶段）**：新增 `lib/platform/config_facts.dart`，把从渲染 JSON 提取端口、
+  API secret、混合入口和 TUN 信息的逻辑统一为 `ConfigFacts`。
+- **共享桌面运行时基础（第三阶段）**：`lib/platform/proxy_controller_base.dart` 成为公共抽象，
+  Linux/Windows/Android 各自控制器差异化覆盖，配合 `unsupported` 占位控制器保留未实现平台的可用性。
+- **UI 模块化**：`home_page` 拆为 `home_active_node`、`home_connection`、`home_dashboard`、`home_traffic`，
+  通用控件拆为 `widgets_data` / `widgets_layout`；`lib/app.dart` 承载应用装配，`main.dart` 退化为入口。
+
+后续计划（Windows 单实例/提权 IPC、API 超时轮询、WinINet journal、系统代理接管状态等 P0/P1 项）仍在
+本计划范围内待实施。本重构时的全量验证：`flutter analyze` 无告警，`flutter test` 全绿。
+
 ## 结论摘要
 
 当前版本的核心链路已经完整：配置可以从导入流转到平台运行时，Android 使用前台 VPN 服务，Linux 和 Windows 由桌面进程监管 sing-box，桌面端还具备系统代理恢复、单实例和托盘能力。现有测试也覆盖了主要纯 Dart 逻辑。

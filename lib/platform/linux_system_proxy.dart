@@ -40,11 +40,12 @@ enum SystemProxyBackend {
   /// to [gnome] rather than to nothing.
   static SystemProxyBackend detect([Map<String, String>? environment]) {
     final env = environment ?? Platform.environment;
-    final desktops = (env['XDG_CURRENT_DESKTOP'] ?? env['DESKTOP_SESSION'] ?? '')
-        .toLowerCase()
-        .split(':')
-        .map((item) => item.trim())
-        .where((item) => item.isNotEmpty);
+    final desktops =
+        (env['XDG_CURRENT_DESKTOP'] ?? env['DESKTOP_SESSION'] ?? '')
+            .toLowerCase()
+            .split(':')
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty);
     for (final desktop in desktops) {
       if (desktop.contains('kde') || desktop.contains('plasma')) {
         return SystemProxyBackend.kde;
@@ -118,11 +119,34 @@ class LinuxSystemProxy {
       );
       return;
     }
-    if (await _readBackup() == null) {
-      await _writeBackup(await _snapshot());
+
+    final backup = await _readBackup();
+    if (backup == null && stateDirectory != null) {
+      final snapshot = await _snapshot();
+      if (warnings.isNotEmpty) {
+        warnings
+            .add('system proxy was not changed because its snapshot failed');
+        return;
+      }
+      if (!await _writeBackup(snapshot)) return;
     }
+
+    var failed = false;
     for (final command in enableCommands(host: host, port: port)) {
-      await _exec(command);
+      final result = await _exec(command);
+      if (result?.exitCode != 0 || result == null) failed = true;
+    }
+    if (!failed || stateDirectory == null) return;
+
+    // Some desktop backends apply settings one command at a time. If a later
+    // command fails, restore the complete snapshot instead of leaving a mixed
+    // set of the user's values and ours. Keep the original failure visible in
+    // the log; restore() clears its own transient warning list while working.
+    final applyWarnings = [...warnings];
+    await restore();
+    warnings.insertAll(0, applyWarnings);
+    if (warnings.isEmpty) {
+      warnings.add('system proxy update failed and was rolled back');
     }
   }
 
@@ -135,8 +159,16 @@ class LinuxSystemProxy {
     warnings.clear();
     final backup = await _readBackup();
     if (backup == null) return;
+    var failed = false;
     for (final command in restoreCommands(backup)) {
-      await _exec(command);
+      final result = await _exec(command);
+      if (result?.exitCode != 0 || result == null) failed = true;
+    }
+    if (failed) {
+      warnings.add(
+        'system proxy could not be fully restored; retrying on next launch',
+      );
+      return;
     }
     await _clearBackup();
   }
@@ -301,25 +333,39 @@ class LinuxSystemProxy {
     }
   }
 
-  Future<void> _writeBackup(Map<String, String> values) async {
+  Future<bool> _writeBackup(Map<String, String> values) async {
     final file = _backupFile;
-    if (file == null) return;
+    if (file == null) return true;
+    final temporary = File('${file.path}.tmp-$pid');
     try {
-      await file.writeAsString(
+      await temporary.writeAsString(
         jsonEncode({'backend': backend.name, 'values': values}),
         flush: true,
       );
+      await temporary.rename(file.path);
+      return true;
     } on Object {
       warnings.add('could not save the previous proxy settings');
+      try {
+        if (await temporary.exists()) await temporary.delete();
+      } on Object {
+        // A failed temporary cleanup is harmless; the next write uses a new
+        // per-process name.
+      }
+      return false;
     }
   }
 
-  Future<void> _clearBackup() async {
+  Future<bool> _clearBackup() async {
     try {
       final file = _backupFile;
       if (file != null && file.existsSync()) await file.delete();
+      return true;
     } on Object {
-      // Left behind; the next restore is a no-op replay of the same values.
+      warnings.add(
+        'could not clear the saved proxy settings; retrying on next launch',
+      );
+      return false;
     }
   }
 

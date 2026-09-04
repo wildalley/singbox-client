@@ -12,6 +12,8 @@ constexpr wchar_t kInternetSettingsKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 constexpr wchar_t kBackupKey[] =
     L"Software\\WildAlley\\SingBoxClient\\ProxyBackup";
+constexpr wchar_t kElevationReadyEvent[] =
+    L"Local\\WildAlley.SingBoxClient.ElevationReady";
 
 constexpr wchar_t kActive[] = L"Active";
 constexpr wchar_t kActiveServer[] = L"ActiveServer";
@@ -271,10 +273,10 @@ bool WindowsProxyManager::ApplySettings(const ProxySettings& settings,
     return false;
   }
 
+  // Write all routing values first. ProxyEnable is the commit bit from
+  // WinINet's point of view: leaving it until the end means an interrupted
+  // update cannot advertise a half-written proxy server as active.
   const bool ok =
-      (settings.proxy_enable_present
-           ? WriteDword(key, kProxyEnable, settings.proxy_enable, error)
-           : DeleteValue(key, kProxyEnable, error)) &&
       (settings.proxy_server_present
            ? WriteString(key, kProxyServer, settings.proxy_server, error)
            : DeleteValue(key, kProxyServer, error)) &&
@@ -286,7 +288,10 @@ bool WindowsProxyManager::ApplySettings(const ProxySettings& settings,
            : DeleteValue(key, kAutoConfigUrl, error)) &&
       (settings.auto_detect_present
            ? WriteDword(key, kAutoDetect, settings.auto_detect, error)
-           : DeleteValue(key, kAutoDetect, error));
+           : DeleteValue(key, kAutoDetect, error)) &&
+      (settings.proxy_enable_present
+           ? WriteDword(key, kProxyEnable, settings.proxy_enable, error)
+           : DeleteValue(key, kProxyEnable, error));
   RegCloseKey(key);
   if (!ok) return false;
   return NotifyWinInet(error);
@@ -304,7 +309,11 @@ bool WindowsProxyManager::SaveBackup(const ProxySettings& settings,
     return false;
   }
 
-  bool ok = WriteDword(key, kActive, 1, error) &&
+  // The active marker is a tiny journal commit record. Clear it before
+  // rewriting the snapshot and set it only after every value is durable; a
+  // crash in the middle is then ignored rather than treated as a complete
+  // snapshot containing a mixture of old and new values.
+  bool ok = DeleteValue(key, kActive, error) &&
             WriteString(key, kActiveServer, active_server, error) &&
             WritePresenceAndValue(key, kProxyEnablePresent, kProxyEnable,
                                   settings.proxy_enable_present,
@@ -320,7 +329,8 @@ bool WindowsProxyManager::SaveBackup(const ProxySettings& settings,
                                   settings.auto_config_url, error) &&
             WritePresenceAndValue(key, kAutoDetectPresent, kAutoDetect,
                                   settings.auto_detect_present,
-                                  settings.auto_detect, error);
+                                  settings.auto_detect, error) &&
+            WriteDword(key, kActive, 1, error);
   RegCloseKey(key);
   return ok;
 }
@@ -496,8 +506,20 @@ bool IsRunningElevated() {
 }
 
 bool RequestElevation() {
+  // The parent owns the instance mutex while this function runs. The child
+  // signals this event before it waits for that mutex, so a successful return
+  // proves that the replacement process actually reached Dart bootstrap. If
+  // UAC is cancelled or the child hangs before that point, the parent remains
+  // alive and the attempted child is cleaned up below.
+  HANDLE ready_event = CreateEventW(nullptr, TRUE, FALSE, kElevationReadyEvent);
+  if (ready_event == nullptr) {
+    return false;
+  }
+  ResetEvent(ready_event);
+
   wchar_t exe_path[MAX_PATH];
   if (GetModuleFileNameW(nullptr, exe_path, MAX_PATH) == 0) {
+    CloseHandle(ready_event);
     return false;
   }
 
@@ -510,12 +532,31 @@ bool RequestElevation() {
   info.nShow = SW_SHOWNORMAL;
 
   if (!ShellExecuteExW(&info)) {
+    CloseHandle(ready_event);
     return false;
   }
 
+  const DWORD wait_result = WaitForSingleObject(ready_event, 10000);
+  const bool ready = wait_result == WAIT_OBJECT_0;
+  if (!ready && info.hProcess != nullptr) {
+    TerminateProcess(info.hProcess, ERROR_TIMEOUT);
+    WaitForSingleObject(info.hProcess, 1000);
+  }
   if (info.hProcess != nullptr) {
     CloseHandle(info.hProcess);
   }
+  CloseHandle(ready_event);
 
-  return true;
+  return ready;
+}
+
+bool SignalElevationReady() {
+  HANDLE ready_event = OpenEventW(EVENT_MODIFY_STATE, FALSE,
+                                  kElevationReadyEvent);
+  if (ready_event == nullptr) {
+    return false;
+  }
+  const BOOL signaled = SetEvent(ready_event);
+  CloseHandle(ready_event);
+  return signaled != FALSE;
 }

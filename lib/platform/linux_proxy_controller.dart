@@ -30,6 +30,7 @@ import '../data/config_builder.dart';
 import '../models/proxy_state.dart';
 import 'app_paths.dart';
 import 'clash_api.dart';
+import 'config_facts.dart';
 import 'linux_privileges.dart';
 import 'linux_system_proxy.dart';
 import 'proxy_controller.dart';
@@ -96,6 +97,9 @@ class LinuxProxyController implements ProxyController {
   /// third line up.
   final _recentOutput = <String>[];
   static const _outputTail = 20;
+  var _sessionId = 0;
+  int? _reportedErrorSession;
+  Future<void> _lifecycleTail = Future<void>.value();
 
   @override
   Stream<ProxyState> get states => _stateController.stream;
@@ -121,33 +125,40 @@ class LinuxProxyController implements ProxyController {
   Future<bool> requestPermission() async => true;
 
   @override
-  Future<void> start(String configJson) async {
-    if (_process != null) await stop();
+  Future<void> start(String configJson) =>
+      _enqueueLifecycle(() => _startInternal(configJson));
+
+  Future<void> _startInternal(String configJson) async {
+    if (_disposed) return;
+    final session = ++_sessionId;
+    _reportedErrorSession = null;
+    if (_process != null) await _stopInternal();
     _stopping = false;
     _recentOutput.clear();
-    _emit(const ProxyState(stage: ProxyStage.starting));
+    _emit(ProxyState(stage: ProxyStage.starting, sessionId: session));
 
     final binary = await resolveBinary(override: binaryOverride);
+    if (!_isCurrentSession(session)) return;
     if (binary == null) {
       _fail(EngineProblem.missing);
       return;
     }
     _binary = binary;
     final version = await readVersion(binary);
+    if (!_isCurrentSession(session)) return;
     if (version != null && !_versionAtLeast(version, singBoxMinimumVersion)) {
       _fail(EngineProblem.tooOld, version.join('.'));
       return;
     }
 
-    final settings = _ConfigFacts.parse(configJson);
+    final settings = ConfigFacts.parse(configJson);
     if (settings.hasTun && !await _authorizeTun(binary)) return;
+    if (!_isCurrentSession(session)) return;
 
     final dataDir = await appDataDirectory();
+    if (!_isCurrentSession(session)) return;
     if (dataDir == null) {
-      _emit(const ProxyState(
-        stage: ProxyStage.error,
-        message: 'no writable data directory',
-      ));
+      _emitError('no writable data directory', session: session);
       return;
     }
     final configPath = '$dataDir${Platform.pathSeparator}config.json';
@@ -159,12 +170,13 @@ class LinuxProxyController implements ProxyController {
       // is also being used.
       await restrictToOwner(configPath, file: true);
     } on Object catch (error) {
-      _emit(ProxyState(
-        stage: ProxyStage.error,
-        message: 'could not write $configPath: $error',
-      ));
+      _emitError(
+        'could not write $configPath: $error',
+        session: session,
+      );
       return;
     }
+    if (!_isCurrentSession(session)) return;
 
     Process process;
     try {
@@ -177,10 +189,11 @@ class LinuxProxyController implements ProxyController {
         ['run', '-c', configPath, '-D', dataDir, '--disable-color'],
       );
     } on ProcessException catch (error) {
-      _emit(ProxyState(
-        stage: ProxyStage.error,
-        message: '$binary: ${error.message}',
-      ));
+      _emitError('$binary: ${error.message}', session: session);
+      return;
+    }
+    if (!_isCurrentSession(session)) {
+      process.kill(ProcessSignal.sigterm);
       return;
     }
     _process = process;
@@ -190,36 +203,64 @@ class LinuxProxyController implements ProxyController {
     var exited = false;
     unawaited(process.exitCode.then((code) {
       exited = true;
-      _onExit(process, code, tun: settings.hasTun);
+      _onExit(process, code, tun: settings.hasTun, session: session);
     }));
 
-    if (!await _awaitReady(settings, isDead: () => exited)) {
+    if (!await _awaitReady(
+      settings,
+      session: session,
+      isDead: () => exited,
+    )) {
       // _awaitReady only returns false after the failure has been reported —
       // either the process died, or it never started listening.
       return;
     }
+    if (!_isCurrentSession(session)) return;
 
+    ProxyCoverage coverage;
     if (settings.wantsSystemProxy) {
       final proxy = _proxyFor(dataDir);
       await proxy.enable(host: '127.0.0.1', port: settings.mixedPort);
+      if (!_isCurrentSession(session)) {
+        await _teardown();
+        return;
+      }
       for (final warning in proxy.warnings) {
         _log('system proxy: $warning');
       }
+      coverage = proxy.isSupported && proxy.warnings.isEmpty
+          ? ProxyCoverage.systemProxy
+          : ProxyCoverage.systemProxyUnavailable;
+    } else if (settings.hasTun) {
+      coverage = ProxyCoverage.tun;
+    } else {
+      coverage = ProxyCoverage.localProxy;
     }
 
-    _emit(ProxyState(stage: ProxyStage.connected, since: DateTime.now()));
+    if (_sessionId == session && !_disposed) {
+      _emit(ProxyState(
+        stage: ProxyStage.connected,
+        since: DateTime.now(),
+        sessionId: session,
+        coverage: coverage,
+      ));
+    }
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop() => _enqueueLifecycle(_stopInternal);
+
+  Future<void> _stopInternal() async {
     final process = _process;
     _stopping = true;
     if (process == null) {
       await _teardown();
-      _emit(ProxyState.disconnected);
+      if (!_disposed) _emit(ProxyState(sessionId: _sessionId));
       return;
     }
-    _emit(const ProxyState(stage: ProxyStage.stopping));
+    if (!_disposed) {
+      _emit(ProxyState(stage: ProxyStage.stopping, sessionId: _sessionId));
+    }
     process.kill(ProcessSignal.sigterm);
     try {
       // sing-box closes its inbounds and flushes cache.db on SIGTERM; that is
@@ -230,7 +271,7 @@ class LinuxProxyController implements ProxyController {
       await process.exitCode;
     }
     await _teardown();
-    _emit(ProxyState.disconnected);
+    if (!_disposed) _emit(ProxyState(sessionId: _sessionId));
   }
 
   @override
@@ -245,17 +286,18 @@ class LinuxProxyController implements ProxyController {
   /// so this is a stop and a start, and connections do not survive it. Android
   /// reloads in place through libbox, which is why the two differ.
   @override
-  Future<void> reload(String configJson) async {
-    await stop();
-    await start(configJson);
-  }
+  Future<void> reload(String configJson) => _enqueueLifecycle(() async {
+        if (_process == null) throw StateError('not connected');
+        await _stopInternal();
+        await _startInternal(configJson);
+      });
 
   @override
   Future<void> selectOutbound(String outboundTag) async {
     final client = _client;
     if (client == null) throw StateError('not connected');
     await client.select(ConfigTags.proxy, outboundTag);
-    await _pushGroup();
+    await _pushGroup(session: _sessionId);
   }
 
   /// Tests every member of the selector group and reports the results.
@@ -316,25 +358,28 @@ class LinuxProxyController implements ProxyController {
     // Order matters. Stopping first lets sing-box close its inbounds and flush
     // its cache on SIGTERM, and the _teardown inside stop() is what puts the
     // desktop's proxy settings back — the step dispose cannot do at all.
-    if (_process != null) {
-      try {
-        await stop();
-      } on Object {
-        // Quitting must not hang on a stubborn engine. dispose below still
-        // sends SIGTERM, and restoreSystemProxy at the next start is the
-        // backstop for the settings.
-      }
-    } else {
-      // No engine of ours running, but an earlier unclean exit may still have
-      // left the desktop pointed at that port. Cheap to be sure.
-      await _teardown();
+    try {
+      await _enqueueLifecycle(() async {
+        if (_process != null) {
+          await _stopInternal();
+        } else {
+          // No engine of ours running, but an earlier unclean exit may still
+          // have left the desktop pointed at that port. Cheap to be sure.
+          await _teardown();
+        }
+      });
+    } on Object {
+      // Quitting must not hang on a stubborn engine. dispose below still sends
+      // SIGTERM, and restoreSystemProxy at the next start is the backstop.
     }
     dispose();
   }
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
+    _sessionId++;
     _groupPoll?.cancel();
     _trafficSub?.cancel();
     _client?.dispose();
@@ -344,6 +389,18 @@ class LinuxProxyController implements ProxyController {
     _logController.close();
     _groupController.close();
   }
+
+  Future<void> _enqueueLifecycle(Future<void> Function() operation) {
+    final previous = _lifecycleTail;
+    final result = previous.then((_) => operation());
+    _lifecycleTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return result;
+  }
+
+  bool _isCurrentSession(int session) => !_disposed && _sessionId == session;
 
   /// Puts the desktop's proxy settings back after an unclean exit.
   ///
@@ -370,12 +427,15 @@ class LinuxProxyController implements ProxyController {
     // Null is "cannot tell": see LinuxPrivileges.hasTunCapabilities.
     if (present != false) return true;
 
-    _emit(const ProxyState(stage: ProxyStage.requestingPermission));
+    _emit(ProxyState(
+      stage: ProxyStage.requestingPermission,
+      sessionId: _sessionId,
+    ));
     _note('tun mode: asking for $tunCapabilities on $binary');
     final outcome = await _privileges.grantTunCapabilities(binary);
     if (outcome == TunAuthorization.granted) {
       _note('tun mode: $tunCapabilities granted');
-      _emit(const ProxyState(stage: ProxyStage.starting));
+      _emit(ProxyState(stage: ProxyStage.starting, sessionId: _sessionId));
       return true;
     }
     // One message for every way it did not happen — dismissed, failed, or
@@ -414,7 +474,8 @@ class LinuxProxyController implements ProxyController {
   /// Waits for the Clash API to answer, which is the first moment the engine is
   /// actually carrying traffic. Reports the failure itself and returns false.
   Future<bool> _awaitReady(
-    _ConfigFacts settings, {
+    ConfigFacts settings, {
+    required int session,
     required bool Function() isDead,
   }) async {
     final client = _clientFactory(
@@ -423,60 +484,88 @@ class LinuxProxyController implements ProxyController {
     );
     final deadline = DateTime.now().add(_readyTimeout);
     while (DateTime.now().isBefore(deadline)) {
-      if (isDead()) return false; // _onExit has already reported it.
-      if (await client.version() != null) {
+      if (isDead() || _sessionId != session) {
+        client.dispose();
+        return false;
+      }
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) break;
+      if (await client.version(timeout: remaining) != null) {
+        if (isDead() || _sessionId != session) {
+          client.dispose();
+          return false;
+        }
         _client = client;
-        _watchTraffic(client);
-        _startGroupPoll();
+        _watchTraffic(client, session: session);
+        _startGroupPoll(session: session);
         return true;
       }
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     client.dispose();
+    if (_sessionId != session) return false;
     _process?.kill(ProcessSignal.sigterm);
-    _emit(ProxyState(
-      stage: ProxyStage.error,
-      message: 'the engine did not start listening on '
-          '127.0.0.1:${settings.clashPort}${_tail()}',
-    ));
+    _emitError(
+      'the engine did not start listening on '
+      '127.0.0.1:${settings.clashPort}${_tail()}',
+      session: session,
+    );
     return false;
   }
 
-  void _watchTraffic(ClashApiClient client) {
+  void _watchTraffic(ClashApiClient client, {required int session}) {
     _trafficSub?.cancel();
     _trafficSub = client.traffic().listen(
       (value) {
-        if (!_trafficController.isClosed) _trafficController.add(value);
+        if (_sessionId == session &&
+            identical(_client, client) &&
+            !_trafficController.isClosed) {
+          _trafficController.add(value);
+        }
       },
       onError: (Object _) {},
     );
   }
 
-  void _startGroupPoll() {
+  void _startGroupPoll({required int session}) {
     _groupPoll?.cancel();
     // The Clash API does not push group changes the way libbox does, so this
     // polls. Cheap — one loopback GET — and it is also how a selection made
     // elsewhere (another Clash dashboard against the same API) shows up here.
-    _groupPoll = Timer.periodic(_groupPollInterval, (_) => _pushGroup());
-    unawaited(_pushGroup());
+    _groupPoll = Timer.periodic(
+      _groupPollInterval,
+      (_) => unawaited(_pushGroup(session: session)),
+    );
+    unawaited(_pushGroup(session: session));
   }
 
-  Future<void> _pushGroup() async {
+  Future<void> _pushGroup({required int session}) async {
+    if (_sessionId != session) return;
     final client = _client;
     if (client == null) return;
     final group = await client.group(ConfigTags.proxy);
-    if (group != null && !_groupController.isClosed) {
+    if (group != null &&
+        _sessionId == session &&
+        identical(_client, client) &&
+        !_groupController.isClosed) {
       _groupController.add(group);
     }
   }
 
-  void _onExit(Process process, int code, {required bool tun}) {
-    if (_process != process) return; // A later start already replaced it.
+  void _onExit(
+    Process process,
+    int code, {
+    required bool tun,
+    required int session,
+  }) {
+    if (_process != process || _sessionId != session) {
+      return; // A later start already replaced it.
+    }
     _process = null;
     unawaited(_teardown());
     if (_disposed) return;
     if (_stopping) {
-      _emit(ProxyState.disconnected);
+      _emit(ProxyState(sessionId: session));
       return;
     }
     final tail = _tail();
@@ -484,10 +573,7 @@ class LinuxProxyController implements ProxyController {
       _fail(EngineProblem.unprivileged, _binary);
       return;
     }
-    _emit(ProxyState(
-      stage: ProxyStage.error,
-      message: 'sing-box exited with code $code$tail',
-    ));
+    _emitError('sing-box exited with code $code$tail', session: session);
   }
 
   /// Releases everything the running engine owned. Safe to call twice.
@@ -515,10 +601,20 @@ class LinuxProxyController implements ProxyController {
     if (!_stateController.isClosed) _stateController.add(state);
   }
 
-  void _fail(EngineProblem problem, [String? detail]) => _emit(ProxyState(
-        stage: ProxyStage.error,
-        message: problem.encode(detail),
-      ));
+  void _fail(EngineProblem problem, [String? detail]) => _emitError(
+        problem.encode(detail),
+        session: _sessionId,
+      );
+
+  void _emitError(String message, {required int session}) {
+    if (_reportedErrorSession == session) return;
+    _reportedErrorSession = session;
+    _emit(ProxyState(
+      stage: ProxyStage.error,
+      message: message,
+      sessionId: session,
+    ));
+  }
 
   /// The engine's last words, for an error message. Empty when it said nothing.
   String _tail() =>
@@ -594,70 +690,4 @@ class LinuxProxyController implements ProxyController {
     required String secret,
   }) =>
       ClashApiClient(port: port, secret: secret);
-}
-
-/// The parts of a rendered config this controller needs to drive it.
-///
-/// Read out of the JSON rather than passed in, so the [ProxyController]
-/// interface stays the one Android uses: one string in, no Linux-shaped extra
-/// arguments for the other platforms to ignore.
-class _ConfigFacts {
-  const _ConfigFacts({
-    required this.clashPort,
-    required this.clashSecret,
-    required this.mixedPort,
-    required this.hasTun,
-  });
-
-  final int clashPort;
-  final String clashSecret;
-  final int mixedPort;
-
-  /// A tun inbound is present, so this start needs `CAP_NET_ADMIN` and the
-  /// desktop's proxy settings should be left alone.
-  final bool hasTun;
-
-  /// Set the system proxy only when there is no tun: with one, the routes
-  /// already carry everything, and pointing applications at the loopback
-  /// inbound as well would send their traffic through two hops of the same
-  /// engine.
-  bool get wantsSystemProxy => !hasTun;
-
-  static _ConfigFacts parse(String configJson) {
-    var clashPort = ConfigBuilder.clashApiPort;
-    var secret = '';
-    var mixedPort = ConfigBuilder.localProxyPort;
-    var hasTun = false;
-    try {
-      final root = jsonDecode(configJson);
-      if (root is! Map) throw const FormatException('not an object');
-      final clash = (root['experimental'] as Map?)?['clash_api'];
-      if (clash is Map) {
-        secret = (clash['secret'] ?? '').toString();
-        final controller = (clash['external_controller'] ?? '').toString();
-        final port = int.tryParse(controller.split(':').last);
-        if (port != null) clashPort = port;
-      }
-      final inbounds = root['inbounds'];
-      if (inbounds is List) {
-        for (final inbound in inbounds) {
-          if (inbound is! Map) continue;
-          if (inbound['type'] == 'tun') hasTun = true;
-          if (inbound['type'] == 'mixed') {
-            final port = inbound['listen_port'];
-            if (port is num) mixedPort = port.toInt();
-          }
-        }
-      }
-    } on Object {
-      // Falls back to the builder's own constants. A config this cannot read is
-      // one the engine will reject in a moment anyway, with a better message.
-    }
-    return _ConfigFacts(
-      clashPort: clashPort,
-      clashSecret: secret,
-      mixedPort: mixedPort,
-      hasTun: hasTun,
-    );
-  }
 }

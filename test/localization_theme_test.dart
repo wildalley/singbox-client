@@ -12,6 +12,7 @@ import 'package:singbox_client/l10n/app_localizations.dart';
 import 'package:singbox_client/main.dart';
 import 'package:singbox_client/models/app_settings.dart';
 import 'package:singbox_client/models/node.dart';
+import 'package:singbox_client/models/proxy_state.dart';
 import 'package:singbox_client/state/app_state.dart';
 import 'package:singbox_client/ui/theme.dart';
 
@@ -122,6 +123,50 @@ void main() {
 
       expect(find.text('连接'), findsOneWidget);
       expect(find.text('Connect'), findsNothing);
+    });
+
+    testWidgets('presentation settings do not reload a live runtime',
+        (tester) async {
+      final harness = await buildState(nodes: [node('a', 'Tokyo')]);
+      addTearDown(harness.state.dispose);
+
+      await harness.state.connect();
+      await tester.pump();
+      expect(harness.state.isConnected, isTrue);
+
+      await harness.state.applySettings(
+        harness.state.settings.copyWith(
+          language: AppLanguage.chinese,
+          themeMode: AppThemeMode.light,
+          closeToTray: true,
+        ),
+      );
+      expect(harness.controller.reloadedConfigs, isEmpty);
+
+      await harness.state.applySettings(
+        harness.state.settings.copyWith(mtu: 1400),
+      );
+      expect(harness.controller.reloadedConfigs, hasLength(1));
+    });
+
+    testWidgets('shows when the core is connected without host proxy coverage',
+        (tester) async {
+      final harness = await buildState(
+        nodes: [node('a', 'Tokyo')],
+        settings: const AppSettings(language: AppLanguage.chinese),
+      );
+      addTearDown(harness.state.dispose);
+
+      await tester.pumpWidget(SingBoxApp(state: harness.state));
+      await tester.pumpAndSettle();
+      await harness.state.connect();
+      harness.controller.emit(const ProxyState(
+        stage: ProxyStage.connected,
+        coverage: ProxyCoverage.systemProxyUnavailable,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('核心已连接 · 系统代理不可用'), findsOneWidget);
     });
 
     testWidgets('every ARB key resolves in both locales', (tester) async {

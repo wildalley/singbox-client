@@ -107,6 +107,19 @@ class L10nEn extends L10n {
   }
 
   @override
+  String get homeCoverageTun => 'TUN active';
+
+  @override
+  String get homeCoverageSystemProxy => 'System proxy applied';
+
+  @override
+  String get homeCoverageSystemProxyUnavailable =>
+      'Core connected · system proxy unavailable';
+
+  @override
+  String get homeCoverageLocalProxy => 'Local proxy only';
+
+  @override
   String get homeCheckTheLogs => 'Check the logs';
 
   @override
@@ -781,6 +794,12 @@ class L10nEn extends L10n {
 
   @override
   String get noticeImportBadSource => 'Not a usable subscription or config';
+
+  @override
+  String get noticeImportTimeout => 'The subscription took too long to respond';
+
+  @override
+  String get noticeImportTooLarge => 'The subscription response is too large';
 
   @override
   String get noticeRuleSetsUpdated =>

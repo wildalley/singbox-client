@@ -42,6 +42,8 @@ class ClashApiClient {
     required this.port,
     required this.secret,
     this.host = '127.0.0.1',
+    this.requestTimeout = const Duration(seconds: 8),
+    this.webSocketTimeout = const Duration(seconds: 8),
     http.Client? client,
     ClashSocketConnector? connector,
   })  : _client = client ?? http.Client(),
@@ -51,6 +53,12 @@ class ClashApiClient {
   final int port;
   final String secret;
   final String host;
+
+  /// Bounds the complete HTTP request, including its response body.
+  final Duration requestTimeout;
+
+  /// Bounds WebSocket connection and close operations during engine churn.
+  final Duration webSocketTimeout;
 
   final http.Client _client;
   final bool _ownsClient;
@@ -77,8 +85,8 @@ class ClashApiClient {
   /// Doubles as the readiness probe: the API starts listening as part of
   /// `sing-box run` coming up, so the first successful call is the earliest
   /// moment the engine is actually able to carry traffic.
-  Future<String?> version() async {
-    final body = await _get('/version');
+  Future<String?> version({Duration? timeout}) async {
+    final body = await _get('/version', timeout: timeout);
     if (body == null) return null;
     final value = body['version'];
     return value is String && value.isNotEmpty ? value : null;
@@ -135,11 +143,13 @@ class ClashApiClient {
   /// Points [group] at [member]. Throws on refusal, so the caller can report a
   /// failed switch instead of showing one that did not happen.
   Future<void> select(String group, String member) async {
-    final response = await _client.put(
-      _uri('/proxies/${Uri.encodeComponent(group)}'),
-      headers: {..._headers, 'Content-Type': 'application/json'},
-      body: jsonEncode({'name': member}),
-    );
+    final response = await _client
+        .put(
+          _uri('/proxies/${Uri.encodeComponent(group)}'),
+          headers: {..._headers, 'Content-Type': 'application/json'},
+          body: jsonEncode({'name': member}),
+        )
+        .timeout(requestTimeout);
     if (response.statusCode ~/ 100 != 2) {
       throw ClashApiException(
         'select $member: HTTP ${response.statusCode}',
@@ -158,7 +168,7 @@ class ClashApiClient {
   }) async {
     final body = await _get(
       '/proxies/${Uri.encodeComponent(name)}/delay',
-      {'url': url, 'timeout': '${timeout.inMilliseconds}'},
+      query: {'url': url, 'timeout': '${timeout.inMilliseconds}'},
     );
     final value = body?['delay'];
     return value is num ? value.toInt() : 0;
@@ -177,6 +187,7 @@ class ClashApiClient {
     var up = 0, down = 0, upTotal = 0, downTotal = 0, count = 0, memory = 0;
     late StreamController<ProxyTraffic> controller;
     final sockets = <ClashSocket>[];
+    var cancelled = false;
 
     void push() => controller.add(ProxyTraffic(
           uplink: up,
@@ -191,24 +202,41 @@ class ClashApiClient {
         ));
 
     Future<void> open() async {
-      for (final (path, handler) in <(String, void Function(Map<String, Object?>))>[
-        ('/traffic', (frame) {
-          up = _int(frame['up']);
-          down = _int(frame['down']);
-        }),
-        ('/connections', (frame) {
-          upTotal = _int(frame['uploadTotal']);
-          downTotal = _int(frame['downloadTotal']);
-          final connections = frame['connections'];
-          count = connections is List ? connections.length : 0;
-          // Present on sing-box, absent on some Clash implementations; the
-          // /memory socket below is the primary source either way.
-          final inline = _int(frame['memory']);
-          if (inline > 0) memory = inline;
-        }),
+      for (final (path, handler)
+          in <(String, void Function(Map<String, Object?>))>[
+        (
+          '/traffic',
+          (frame) {
+            up = _int(frame['up']);
+            down = _int(frame['down']);
+          }
+        ),
+        (
+          '/connections',
+          (frame) {
+            upTotal = _int(frame['uploadTotal']);
+            downTotal = _int(frame['downloadTotal']);
+            final connections = frame['connections'];
+            count = connections is List ? connections.length : 0;
+            // Present on sing-box, absent on some Clash implementations; the
+            // /memory socket below is the primary source either way.
+            final inline = _int(frame['memory']);
+            if (inline > 0) memory = inline;
+          }
+        ),
         ('/memory', (frame) => memory = _int(frame['inuse'])),
       ]) {
-        final socket = await _connect(_uri(path), _headers);
+        if (cancelled) break;
+        final socket =
+            await _connect(_uri(path), _headers).timeout(webSocketTimeout);
+        if (cancelled) {
+          try {
+            await socket.close().timeout(webSocketTimeout);
+          } on Object {
+            // The socket may already be gone.
+          }
+          break;
+        }
         sockets.add(socket);
         socket.frames.listen(
           (frame) {
@@ -226,9 +254,10 @@ class ClashApiClient {
     }
 
     Future<void> shut() async {
+      cancelled = true;
       for (final socket in sockets) {
         try {
-          await socket.close();
+          await socket.close().timeout(webSocketTimeout);
         } on Object {
           // Already gone.
         }
@@ -246,11 +275,14 @@ class ClashApiClient {
   }
 
   Future<Map<String, Object?>?> _get(
-    String path, [
+    String path, {
     Map<String, String>? query,
-  ]) async {
+    Duration? timeout,
+  }) async {
     try {
-      final response = await _client.get(_uri(path, query), headers: _headers);
+      final response = await _client
+          .get(_uri(path, query), headers: _headers)
+          .timeout(timeout ?? requestTimeout);
       if (response.statusCode ~/ 100 != 2) return null;
       final decoded = jsonDecode(response.body);
       return decoded is Map ? Map<String, Object?>.from(decoded) : null;

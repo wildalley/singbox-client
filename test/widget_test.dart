@@ -30,6 +30,11 @@ class FakeProxyController implements ProxyController {
   var stopCount = 0;
   var clearLogsCount = 0;
   var urlTestCount = 0;
+  final lifecycleCalls = <String>[];
+
+  /// Holds a start open so the state tests can issue a disconnect during the
+  /// readiness window.
+  Completer<void>? startGate;
 
   /// When set, [urlTest] throws instead of reporting, standing in for a tunnel
   /// that went away between the connected check and the call.
@@ -78,12 +83,16 @@ class FakeProxyController implements ProxyController {
 
   @override
   Future<void> start(String configJson) async {
+    lifecycleCalls.add('start');
     startedConfigs.add(configJson);
+    final gate = startGate;
+    if (gate != null) await gate.future;
     emit(ProxyState(stage: ProxyStage.connected, since: DateTime.now()));
   }
 
   @override
   Future<void> stop() async {
+    lifecycleCalls.add('stop');
     stopCount++;
     emit(ProxyState.disconnected);
   }
@@ -102,8 +111,10 @@ class FakeProxyController implements ProxyController {
   }
 
   @override
-  Future<void> reload(String configJson) async =>
-      reloadedConfigs.add(configJson);
+  Future<void> reload(String configJson) async {
+    lifecycleCalls.add('reload');
+    reloadedConfigs.add(configJson);
+  }
 
   @override
   Future<void> selectOutbound(String outboundTag) async =>
@@ -214,7 +225,8 @@ void main() {
     // The config the UI sends must be the real thing, not a placeholder. The
     // mixed inbound rather than the tun: the default mode is system proxy, which
     // renders no tun, and this is the inbound both modes always carry.
-    expect(harness.controller.startedConfigs.single, contains('"type": "mixed"'));
+    expect(
+        harness.controller.startedConfigs.single, contains('"type": "mixed"'));
     expect(harness.controller.startedConfigs.single, contains('a.example.com'));
     expect(find.text('Connected'), findsWidgets);
     expect(find.text('Disconnect'), findsOneWidget);
@@ -233,6 +245,30 @@ void main() {
 
     expect(harness.controller.stopCount, 1);
     expect(find.text('Connect'), findsOneWidget);
+  });
+
+  testWidgets('a queued disconnect wins over a pending start', (tester) async {
+    final harness = await buildState(nodes: [node('a', 'Tokyo')]);
+    addTearDown(harness.state.dispose);
+    final gate = Completer<void>();
+    harness.controller.startGate = gate;
+
+    final connect = harness.state.connect();
+    await tester.pump();
+    expect(harness.controller.lifecycleCalls, contains('start'));
+
+    final disconnect = harness.state.disconnect();
+    await tester.pump();
+    expect(harness.controller.stopCount, 0,
+        reason: 'disconnect waits for the serialized start to finish');
+
+    gate.complete();
+    await Future.wait([connect, disconnect]);
+    await tester.pump();
+
+    expect(harness.controller.lifecycleCalls, ['start', 'stop']);
+    expect(harness.controller.stopCount, 1);
+    expect(harness.state.isConnected, isFalse);
   });
 
   testWidgets('denied permission surfaces an error and starts nothing',

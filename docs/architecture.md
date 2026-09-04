@@ -14,6 +14,17 @@ lib/l10n        ARB sources plus generated localizations (en, zh).
 android/…/kotlin  VpnService, libbox glue, method/event channels.
 ```
 
+Since the optimization review, the tree under these directories is deliberately
+fine-grained. `lib/state` splits `AppState` by concern (`app_state_config`,
+`app_state_connection`, `app_state_import`, `app_state_latency`,
+`app_state_notice`, `app_state_rules`, `app_state_runtime`), `lib/ui` splits the
+home screen into `home_active_node`, `home_connection`, `home_dashboard`,
+`home_traffic` and the shared widgets into `widgets_data` / `widgets_layout`,
+and `lib/platform` adds a `proxy_controller_base` plus one controller per target
+(`android`, `linux`, `windows`, `unsupported`) with a shared `config_facts`.
+`lib/main.dart` is now a thin entry that hands off to `lib/app.dart`; a large
+monolithic `AppState` and `Widgets` no longer exist.
+
 The UI depends on nothing below `lib/state`. Process IDs, VPN permissions,
 system routes, and service lifecycles live behind `ProxyController`.
 

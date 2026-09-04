@@ -59,6 +59,8 @@ String subscriptionFailureText(
         l10n.noticeImportHttpStatus(status ?? 0),
       SubscriptionFailure.unusableContent => l10n.noticeImportUnusable,
       SubscriptionFailure.badSource => l10n.noticeImportBadSource,
+      SubscriptionFailure.timeout => l10n.noticeImportTimeout,
+      SubscriptionFailure.responseTooLarge => l10n.noticeImportTooLarge,
     };
 
 /// What is wrong with a rule, in the user's language.

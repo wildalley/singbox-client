@@ -19,7 +19,8 @@ enum TunAuthorizationStatus {
   /// Elevation failed for an unknown reason.
   failed,
 
-  /// UAC accepted and a new elevated app instance was launched.
+  /// UAC accepted and the new elevated app instance acknowledged its
+  /// bootstrap.
   relaunching,
 }
 
@@ -53,9 +54,10 @@ class WindowsPrivileges {
     try {
       final result = await _channel.invokeMethod<bool>('requestElevation');
       if (result == true) {
-        // The native runner starts a second, elevated app instance. The caller
-        // must leave this unelevated process so the two instances do not both
-        // try to own the runtime.
+        // The native runner has started a second, elevated app instance and
+        // received its bootstrap acknowledgement. The caller must leave this
+        // unelevated process so the two instances do not both try to own the
+        // runtime.
         return TunAuthorizationStatus.relaunching;
       }
       return TunAuthorizationStatus.declined;

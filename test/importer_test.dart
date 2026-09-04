@@ -265,6 +265,42 @@ void main() {
       );
     });
 
+    test('rejects an oversized response before parsing it', () async {
+      final body = List<String>.filled(4 * 1024 * 1024 + 1, 'x').join();
+      respond = (response) => response.write(body);
+
+      await expectLater(
+        importer.fetchSubscription(url),
+        throwsA(isA<ImportException>().having(
+          (error) => error.failure,
+          'failure',
+          SubscriptionFailure.responseTooLarge,
+        )),
+      );
+    });
+
+    test('limits concurrent subscription fetches', () async {
+      var active = 0;
+      var peak = 0;
+      await server.close(force: true);
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      url = 'http://${server.address.address}:${server.port}/sub';
+      server.listen((request) async {
+        active++;
+        if (active > peak) peak = active;
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        request.response.write('trojan://pass@a.example.com:443#A');
+        await request.response.close();
+        active--;
+      });
+
+      await Future.wait([
+        for (var i = 0; i < 8; i++) importer.fetchSubscription(url),
+      ]);
+
+      expect(peak, lessThanOrEqualTo(3));
+    });
+
     test('nothing listening reads as unreachable, without the token', () async {
       final port = server.port;
       await server.close(force: true);

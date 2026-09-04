@@ -42,6 +42,7 @@ test/failures/
 
 # Local agent/tool configuration. Holds API keys, and this repo is public.
 .codex/
+.claude/
 
 # OS noise
 .DS_Store

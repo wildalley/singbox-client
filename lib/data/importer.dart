@@ -1,6 +1,8 @@
 /// Import pipelines: subscription URL, share links, and sing-box JSON.
 library;
 
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -51,14 +53,27 @@ class ImportResult {
   final int? totalBytes;
 }
 
-class Importer {
-  Importer({HttpClient? httpClient})
-      : _httpClient =
-            httpClient ?? (HttpClient()..connectionTimeout = _timeout);
+class _ResponseTooLarge implements Exception {
+  const _ResponseTooLarge();
+}
 
-  final HttpClient _httpClient;
+class Importer {
+  Importer({HttpClient? httpClient}) : _sharedClient = httpClient;
+
+  /// A supplied client is retained for callers that need to inject a transport
+  /// in tests. The normal path creates one client per fetch, because
+  /// [HttpClient.findProxy] is mutable and tunnel/direct fallback must not race
+  /// when two sources are refreshed at once.
+  final HttpClient? _sharedClient;
+  final _activeClients = <HttpClient>{};
+  final _fetchWaiters = Queue<Completer<void>>();
+  Future<void> _sharedClientTail = Future<void>.value();
+  var _disposed = false;
+  var _activeFetches = 0;
 
   static const _timeout = Duration(seconds: 20);
+  static const _maxResponseBytes = 4 * 1024 * 1024;
+  static const _maxConcurrentFetches = 3;
   static const _userAgent = 'sing-box; SingBoxClient/0.1.0';
 
   /// Detects the format of pasted [text] and imports it.
@@ -222,7 +237,10 @@ class Importer {
         // Only a transport failure is worth the other path. A status code or an
         // unusable body is the panel's own answer, and it would say the same
         // thing again.
-        if (error.failure != SubscriptionFailure.unreachable) rethrow;
+        if (error.failure != SubscriptionFailure.unreachable &&
+            error.failure != SubscriptionFailure.timeout) {
+          rethrow;
+        }
         unreachable = error;
       }
     }
@@ -234,47 +252,165 @@ class Importer {
     String? subscriptionId,
     required bool viaLocalProxy,
   }) async {
-    routeHttp(_httpClient, viaLocalProxy: viaLocalProxy);
-
-    late HttpClientResponse response;
-    String body;
+    if (_disposed) {
+      throw StateError('Importer is disposed');
+    }
+    await _acquireFetchSlot();
     try {
-      final request = await _httpClient.getUrl(uri).timeout(_timeout);
-      request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-      response = await request.close().timeout(_timeout);
-      body = await response.transform(utf8.decoder).join().timeout(_timeout);
-    } on Object catch (error) {
-      // Never surface the URL itself: it usually carries the token.
-      throw ImportException(
-        'Subscription fetch failed: ${_redact(error)}',
-        failure: SubscriptionFailure.unreachable,
+      if (_disposed) throw StateError('Importer is disposed');
+      final shared = _sharedClient;
+      if (shared != null) {
+        return await _serializeSharedFetch(
+          () => _fetchOnceWithClient(
+            shared,
+            uri,
+            subscriptionId: subscriptionId,
+            viaLocalProxy: viaLocalProxy,
+          ),
+        );
+      }
+      return await _fetchOnceWithClient(
+        HttpClient()
+          ..connectionTimeout = _timeout
+          ..idleTimeout = _timeout,
+        uri,
+        subscriptionId: subscriptionId,
+        viaLocalProxy: viaLocalProxy,
+        closeClient: true,
       );
+    } finally {
+      _releaseFetchSlot();
     }
+  }
 
-    if (response.statusCode != HttpStatus.ok) {
-      throw ImportException(
-        'Subscription returned HTTP ${response.statusCode}',
-        failure: SubscriptionFailure.httpStatus,
-        statusCode: response.statusCode,
-      );
+  Future<void> _acquireFetchSlot() {
+    if (_disposed) return Future.error(StateError('Importer is disposed'));
+    if (_activeFetches < _maxConcurrentFetches) {
+      _activeFetches++;
+      return Future<void>.value();
     }
+    final waiter = Completer<void>();
+    _fetchWaiters.add(waiter);
+    return waiter.future;
+  }
 
-    final base = _looksLikeJson(body.trim())
-        ? importSingBoxConfig(body, subscriptionId: subscriptionId)
-        : importShareLinks(body, subscriptionId: subscriptionId);
+  void _releaseFetchSlot() {
+    while (_fetchWaiters.isNotEmpty) {
+      final waiter = _fetchWaiters.removeFirst();
+      if (waiter.isCompleted) continue;
+      // Transfer the slot directly. The active count remains unchanged until
+      // that waiter finishes, so a burst cannot exceed the configured bound.
+      waiter.complete();
+      return;
+    }
+    _activeFetches--;
+  }
 
-    final info =
-        _parseUserInfo(response.headers.value('subscription-userinfo'));
-    final title = _decodeHeaderTitle(response.headers.value('profile-title'));
-
-    return ImportResult(
-      nodes: base.nodes,
-      skipped: base.skipped,
-      subscriptionName: title,
-      expiresAt: info.expiresAt,
-      usedBytes: info.usedBytes,
-      totalBytes: info.totalBytes,
+  Future<ImportResult> _serializeSharedFetch(
+    Future<ImportResult> Function() operation,
+  ) {
+    final previous = _sharedClientTail;
+    final result = previous.then((_) => operation());
+    _sharedClientTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
     );
+    return result;
+  }
+
+  Future<ImportResult> _fetchOnceWithClient(
+    HttpClient client,
+    Uri uri, {
+    String? subscriptionId,
+    required bool viaLocalProxy,
+    bool closeClient = false,
+  }) async {
+    if (closeClient) _activeClients.add(client);
+    try {
+      routeHttp(client, viaLocalProxy: viaLocalProxy);
+
+      late HttpClientResponse response;
+      String body;
+      try {
+        final deadline = DateTime.now().add(_timeout);
+        Duration remaining() {
+          final value = deadline.difference(DateTime.now());
+          if (value <= Duration.zero) {
+            throw TimeoutException('subscription fetch timed out');
+          }
+          return value;
+        }
+
+        final request = await client.getUrl(uri).timeout(remaining());
+        request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+        response = await request.close().timeout(remaining());
+        if (response.contentLength > _maxResponseBytes) {
+          throw const _ResponseTooLarge();
+        }
+        body = await _readResponse(response).timeout(remaining());
+      } on _ResponseTooLarge {
+        throw ImportException(
+          'Subscription response exceeds ${_maxResponseBytes ~/ (1024 * 1024)} MiB',
+          failure: SubscriptionFailure.responseTooLarge,
+        );
+      } on TimeoutException catch (error) {
+        throw ImportException(
+          'Subscription fetch timed out: ${_redact(error)}',
+          failure: SubscriptionFailure.timeout,
+        );
+      } on FormatException {
+        throw ImportException(
+          'Subscription response is not valid UTF-8',
+          failure: SubscriptionFailure.unusableContent,
+        );
+      } on Object catch (error) {
+        // Never surface the URL itself: it usually carries the token.
+        throw ImportException(
+          'Subscription fetch failed: ${_redact(error)}',
+          failure: SubscriptionFailure.unreachable,
+        );
+      }
+
+      if (response.statusCode != HttpStatus.ok) {
+        throw ImportException(
+          'Subscription returned HTTP ${response.statusCode}',
+          failure: SubscriptionFailure.httpStatus,
+          statusCode: response.statusCode,
+        );
+      }
+
+      final base = _looksLikeJson(body.trim())
+          ? importSingBoxConfig(body, subscriptionId: subscriptionId)
+          : importShareLinks(body, subscriptionId: subscriptionId);
+
+      final info =
+          _parseUserInfo(response.headers.value('subscription-userinfo'));
+      final title = _decodeHeaderTitle(response.headers.value('profile-title'));
+      return ImportResult(
+        nodes: base.nodes,
+        skipped: base.skipped,
+        subscriptionName: title,
+        expiresAt: info.expiresAt,
+        usedBytes: info.usedBytes,
+        totalBytes: info.totalBytes,
+      );
+    } finally {
+      if (closeClient) {
+        _activeClients.remove(client);
+        client.close(force: true);
+      }
+    }
+  }
+
+  static Future<String> _readResponse(HttpClientResponse response) async {
+    final bytes = <int>[];
+    await for (final chunk in response) {
+      bytes.addAll(chunk);
+      if (bytes.length > _maxResponseBytes) {
+        throw const _ResponseTooLarge();
+      }
+    }
+    return utf8.decode(bytes);
   }
 
   /// Re-fetches [subscription] and returns the refreshed nodes and metadata.
@@ -310,7 +446,21 @@ class Importer {
     );
   }
 
-  void dispose() => _httpClient.close(force: true);
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    while (_fetchWaiters.isNotEmpty) {
+      final waiter = _fetchWaiters.removeFirst();
+      if (!waiter.isCompleted) {
+        waiter.completeError(StateError('Importer is disposed'));
+      }
+    }
+    _sharedClient?.close(force: true);
+    for (final client in _activeClients) {
+      client.close(force: true);
+    }
+    _activeClients.clear();
+  }
 
   // -------------------------------------------------------------- helpers
 
