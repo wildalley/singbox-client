@@ -41,6 +41,7 @@ class WindowsProxyController implements ProxyController {
   static const _apiHost = '127.0.0.1';
   static const _apiReadyTimeout = Duration(seconds: 12);
   static const _apiRequestTimeout = Duration(seconds: 8);
+  static const _selectionConfirmTimeout = Duration(seconds: 3);
   static const _statsPollInterval = Duration(seconds: 1);
   static const _groupsPollInterval = Duration(seconds: 5);
 
@@ -263,6 +264,28 @@ class WindowsProxyController implements ProxyController {
       '/proxies/${Uri.encodeComponent(ConfigTags.proxy)}',
       body: jsonEncode({'name': outboundTag}),
     );
+
+    // Do not report success just because the API accepted the PUT. Confirm the
+    // selector's `now` value so AppState cannot commit a node that the running
+    // engine did not actually start using.
+    final deadline = DateTime.now().add(_selectionConfirmTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final selected = await _selectedOutbound();
+      if (selected == outboundTag) return;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    throw StateError('sing-box did not confirm the selected node');
+  }
+
+  Future<String?> _selectedOutbound() async {
+    final body = await _apiRequest('GET', '/proxies');
+    final decoded = jsonDecode(body);
+    if (decoded is! Map) return null;
+    final proxies = decoded['proxies'];
+    if (proxies is! Map) return null;
+    final group = proxies[ConfigTags.proxy];
+    if (group is! Map) return null;
+    return group['now']?.toString();
   }
 
   @override

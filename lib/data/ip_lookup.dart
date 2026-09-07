@@ -99,14 +99,16 @@ class IpLookup {
   }
 
   Future<ExitAddress?> _fetchOne(IpEchoService service) async {
-    final request = await _httpClient
-        .getUrl(Uri.parse(service.url))
-        .timeout(timeout);
+    final request =
+        await _httpClient.getUrl(Uri.parse(service.url)).timeout(timeout);
+    // A node switch replaces the selector's route, but a pooled HTTP proxy
+    // connection can otherwise keep carrying this request through the previous
+    // outbound. Do not let the exit-IP diagnostic reuse that connection.
+    request.persistentConnection = false;
     // Some echo services hand a browser an HTML page unless asked otherwise.
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     final response = await request.close().timeout(timeout);
-    final body =
-        await response.transform(utf8.decoder).join().timeout(timeout);
+    final body = await response.transform(utf8.decoder).join().timeout(timeout);
     if (response.statusCode != HttpStatus.ok) return null;
     return parseEcho(body);
   }

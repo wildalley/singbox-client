@@ -129,29 +129,41 @@ extension _AppStateRuntime on AppState {
   /// system-proxy mode, so it would claim the tunnel was doing nothing when it
   /// was working. See `ip_lookup.dart`.
   ///
-  /// Overlapping calls are dropped rather than queued. Switching nodes a few
-  /// times in a row should leave one request on the wire, not one per switch.
+  /// Overlapping calls are coalesced rather than queued. Switching nodes a few
+  /// times in a row should leave one request on the wire at a time, not one per
+  /// switch. The newest request is kept pending so a rapid final switch is not
+  /// left displaying no address after the earlier request completes.
   Future<void> _refreshExitAddress() async {
     if (!_acceptingWork) return;
-    if (_checkingExitAddress) return;
-    final generation = _exitLookupGeneration;
+    if (_checkingExitAddress) {
+      _exitLookupPending = true;
+      return;
+    }
     _checkingExitAddress = true;
     notifyListeners();
     try {
-      final address = await _ipLookup.fetch(viaLocalProxy: isConnected);
-      // A failed lookup clears the reading rather than leaving the last one on
-      // screen: a stale address beside a tunnel that has since moved is worse
-      // than admitting the check did not answer.
-      if (!_disposed && generation == _exitLookupGeneration && isConnected) {
-        _exitAddress = address;
-      }
-    } on Object {
-      // The lookup is a secondary readout. A network failure must not become an
-      // unhandled exception just because the caller intentionally did not await
-      // the refresh from a node switch or a state callback.
-      if (!_disposed && generation == _exitLookupGeneration) {
-        _exitAddress = null;
-      }
+      do {
+        _exitLookupPending = false;
+        final generation = _exitLookupGeneration;
+        try {
+          final address = await _ipLookup.fetch(viaLocalProxy: isConnected);
+          // A failed lookup clears the reading rather than leaving the last one
+          // on screen: a stale address beside a tunnel that has since moved is
+          // worse than admitting the check did not answer.
+          if (!_disposed &&
+              generation == _exitLookupGeneration &&
+              isConnected) {
+            _exitAddress = address;
+          }
+        } on Object {
+          // The lookup is a secondary readout. A network failure must not become
+          // an unhandled exception just because the caller intentionally did not
+          // await the refresh from a node switch or a state callback.
+          if (!_disposed && generation == _exitLookupGeneration) {
+            _exitAddress = null;
+          }
+        }
+      } while (_exitLookupPending && _acceptingWork && isConnected);
     } finally {
       _checkingExitAddress = false;
       _notifyUnlessDisposed();

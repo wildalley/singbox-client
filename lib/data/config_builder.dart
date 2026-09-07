@@ -104,6 +104,9 @@ class ConfigBuilder {
         'url': 'https://www.gstatic.com/generate_204',
         'interval': '3m',
         'tolerance': 50,
+        // Auto can move between members without a user tap. Close the old
+        // inbound connections so the next request really uses the new exit.
+        'interrupt_exist_connections': true,
       });
       final defaultTag =
           selectedNodeId != null && nodeTags[selectedNodeId] != null
@@ -114,7 +117,10 @@ class ConfigBuilder {
         'tag': ConfigTags.proxy,
         'outbounds': [ConfigTags.auto, ...proxyMembers],
         'default': defaultTag,
-        'interrupt_exist_connections': false,
+        // A live node switch must take effect for existing TUN/mixed
+        // connections too. Keeping these open makes persistent clients — and
+        // the app's own long-lived IP lookup client — stay on the old node.
+        'interrupt_exist_connections': true,
       });
     }
 

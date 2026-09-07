@@ -236,6 +236,15 @@ void main() {
       expect(find.text('Tokyo'), findsOneWidget);
       expect(state.isSourceCollapsed('s1'), isTrue,
           reason: 'the chip must not rewrite what the user folded');
+
+      // The source filter reveals a folded section, but the header still has to
+      // be able to close it again. This was the regression: the forced-open
+      // filter won over every later tap.
+      await tester.tap(find.text('Alpha').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Tokyo'), findsNothing);
+      expect(state.isSourceCollapsed('s1'), isTrue,
+          reason: 'a temporary filter close must preserve the fold state');
     });
 
     testWidgets('is not what the buttons beside it do', (tester) async {

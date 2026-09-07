@@ -142,8 +142,16 @@ class MainActivity : FlutterActivity() {
                 if (service == null) {
                     result.error("not_running", "The tunnel is not running", null)
                 } else {
-                    service.selectOutbound(PROXY_GROUP, tag)
-                    result.success(null)
+                    try {
+                        service.selectOutbound(PROXY_GROUP, tag)
+                        result.success(null)
+                    } catch (error: Throwable) {
+                        result.error(
+                            "select_outbound_failed",
+                            error.message ?: "Could not switch outbound",
+                            null,
+                        )
+                    }
                 }
             }
 

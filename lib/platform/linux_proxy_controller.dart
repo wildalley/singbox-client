@@ -42,6 +42,7 @@ import 'proxy_controller.dart';
 /// outright, and its complaint is a schema error several lines long — saying so
 /// up front is more use than passing that through.
 const singBoxMinimumVersion = (1, 12);
+const _selectionConfirmTimeout = Duration(seconds: 3);
 
 class LinuxProxyController implements ProxyController {
   LinuxProxyController({
@@ -297,7 +298,22 @@ class LinuxProxyController implements ProxyController {
     final client = _client;
     if (client == null) throw StateError('not connected');
     await client.select(ConfigTags.proxy, outboundTag);
-    await _pushGroup(session: _sessionId);
+
+    // A successful PUT only means the Clash API accepted the command. Wait for
+    // the selector's reported `now` value before telling AppState that the
+    // switch completed; otherwise the UI can show a new node while traffic is
+    // still leaving through the previous one (or the API ignored an invalid
+    // member for a compatible-but-different runtime).
+    final deadline = DateTime.now().add(_selectionConfirmTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final group = await client.group(ConfigTags.proxy);
+      if (group?.selected == outboundTag) {
+        if (!_groupController.isClosed) _groupController.add(group!);
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    throw StateError('sing-box did not confirm the selected node');
   }
 
   /// Tests every member of the selector group and reports the results.

@@ -189,8 +189,14 @@ class SingBoxVpnService : VpnService() {
     }
 
     fun selectOutbound(group: String, tag: String) {
-        runCatching { commandClient?.selectOutbound(group, tag) }
-            .onFailure { Log.w(TAG, "selectOutbound failed", it) }
+        synchronized(lock) {
+            val client = commandClient
+                ?: throw IllegalStateException("not connected")
+            // Let the method-channel caller see a rejected command. Swallowing
+            // this exception made the Dart side commit a node that libbox had
+            // never selected.
+            client.selectOutbound(group, tag)
+        }
     }
 
     /**

@@ -31,6 +31,7 @@ class FakeProxyController implements ProxyController {
   var clearLogsCount = 0;
   var urlTestCount = 0;
   final lifecycleCalls = <String>[];
+  String? selectOutboundError;
 
   /// Holds a start open so the state tests can issue a disconnect during the
   /// readiness window.
@@ -117,8 +118,11 @@ class FakeProxyController implements ProxyController {
   }
 
   @override
-  Future<void> selectOutbound(String outboundTag) async =>
-      selectedOutbounds.add(outboundTag);
+  Future<void> selectOutbound(String outboundTag) async {
+    final error = selectOutboundError;
+    if (error != null) throw StateError(error);
+    selectedOutbounds.add(outboundTag);
+  }
 
   @override
   Future<void> urlTest() async {
@@ -376,6 +380,24 @@ void main() {
     expect(harness.controller.selectedOutbounds, hasLength(1));
     expect(harness.controller.selectedOutbounds.single, contains('Osaka'));
     expect(harness.controller.stopCount, 0);
+  });
+
+  test('a rejected live switch does not commit a fake selection', () async {
+    final harness = await buildState(
+      nodes: [node('a', 'Tokyo'), node('b', 'Osaka')],
+    );
+    addTearDown(harness.state.dispose);
+    final state = harness.state;
+
+    await state.selectNode(state.nodes.first);
+    await state.connect();
+    harness.controller.selectOutboundError = 'selector rejected member';
+
+    await state.selectNode(state.nodes.last);
+
+    expect(state.selectedNodeId, 'a');
+    expect(harness.controller.selectedOutbounds, isEmpty);
+    expect(state.takeNotice()?.kind, NoticeKind.switchFailed);
   });
 
   testWidgets('logs tab shows engine output', (tester) async {

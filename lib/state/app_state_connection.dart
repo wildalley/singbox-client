@@ -118,20 +118,35 @@ extension _AppStateConnection on AppState {
 
   /// Records a selection and, while connected, moves the live selector to it.
   Future<void> _select(String id, String outboundTag) async {
-    _selectedNodeId = id;
-    await _storage.writeSelectedNodeId(id);
-    notifyListeners();
-
-    if (!isConnected) return;
+    final previousId = _selectedNodeId;
+    final connected = isConnected;
     try {
-      await _controller.selectOutbound(outboundTag);
+      if (connected) {
+        // A connected selection is committed only after the runtime accepts it.
+        // This keeps the highlighted node and the persisted default honest when
+        // the platform control channel is unavailable.
+        await _controller.selectOutbound(outboundTag);
+      }
+      _selectedNodeId = id;
+      await _storage.writeSelectedNodeId(id);
+      notifyListeners();
+
+      if (!connected) return;
       // The exit moved, so the address on screen is now the previous node's.
-      // Unawaited: the switch is done either way, and a slow echo service must
-      // not make selecting a node feel slow.
+      // Clear it before starting the fresh lookup so an old address can never be
+      // mistaken for the new exit while the proxy connection is being replaced.
       _exitAddress = null;
       _exitLookupGeneration++;
+      notifyListeners();
       unawaited(refreshExitAddress());
     } on Object catch (error) {
+      // The live runtime may have rejected the switch. Keep the old selection in
+      // memory and on disk instead of presenting a choice that did not take.
+      if (connected && _selectedNodeId != previousId) {
+        _selectedNodeId = previousId;
+        await _storage.writeSelectedNodeId(previousId);
+        notifyListeners();
+      }
       _notify(AppNotice.error(NoticeKind.switchFailed, detail: _short(error)));
     }
   }

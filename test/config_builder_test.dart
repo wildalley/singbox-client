@@ -87,6 +87,23 @@ void main() {
       expect(selector['default'], ConfigBuilder.outboundTag(nodes[1]));
     });
 
+    test('selector switches interrupt existing connections', () {
+      final config = _build(
+        nodes: [_node(id: 'a'), _node(id: 'b', name: 'Osaka')],
+        selectedNodeId: 'a',
+        settings: const AppSettings(),
+      );
+
+      expect(
+        _outbound(config, ConfigTags.proxy)!['interrupt_exist_connections'],
+        isTrue,
+      );
+      expect(
+        _outbound(config, ConfigTags.auto)!['interrupt_exist_connections'],
+        isTrue,
+      );
+    });
+
     test('an unknown selection falls back to auto', () {
       final config = _build(
         nodes: [_node(id: 'a')],

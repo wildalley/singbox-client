@@ -148,8 +148,11 @@ class AppState extends ChangeNotifier {
   ExitAddress? _exitAddress;
 
   /// A lookup is in flight. Also the concurrency guard: switching nodes twice in
-  /// a second must not put two requests on the wire.
+  /// a second must not put two requests on the wire. A refresh requested while
+  /// one is running is coalesced and retried after the current request, so the
+  /// last node selected still gets a fresh reading.
   var _checkingExitAddress = false;
+  var _exitLookupPending = false;
   var _exitLookupGeneration = 0;
 
   /// Fixed-capacity, so a burst costs one slot each rather than shifting the

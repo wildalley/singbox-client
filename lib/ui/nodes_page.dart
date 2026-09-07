@@ -37,6 +37,7 @@ class NodesPage extends StatefulWidget {
 
 class _NodesPageState extends State<NodesPage> {
   final _searchController = TextEditingController();
+  final _contextCollapsedSources = <String>{};
   var _query = '';
   var _filter = _NodeFilter.all;
 
@@ -47,6 +48,28 @@ class _NodesPageState extends State<NodesPage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// A search or source filter temporarily reveals a folded section so a match
+  /// cannot look missing. If the user taps that section's header while it is
+  /// revealed, remember the explicit close locally; otherwise the forced-open
+  /// condition would immediately undo the tap on the next build.
+  void _toggleSource(String sourceId) {
+    final contextual = _query.trim().isNotEmpty || _source == sourceId;
+    if (contextual) {
+      if (!_contextCollapsedSources.add(sourceId)) {
+        _contextCollapsedSources.remove(sourceId);
+      }
+      // This is a temporary reveal caused by the active search/source filter;
+      // do not overwrite the user's persisted fold preference just because the
+      // filter is on.
+      setState(() {});
+      return;
+    } else {
+      _contextCollapsedSources.remove(sourceId);
+    }
+    setState(() {});
+    widget.state.toggleSourceCollapsed(sourceId);
   }
 
   List<ProxyNode> _visible(String? source) {
@@ -104,9 +127,9 @@ class _NodesPageState extends State<NodesPage> {
     // source from the row above is the same kind of request, so it unfolds too —
     // in both cases without touching what the user folded.
     bool expanded(String sourceId) =>
-        _query.trim().isNotEmpty ||
-        source == sourceId ||
-        !state.isSourceCollapsed(sourceId);
+        !state.isSourceCollapsed(sourceId) ||
+        ((_query.trim().isNotEmpty || source == sourceId) &&
+            !_contextCollapsedSources.contains(sourceId));
 
     return PageFrame(
       title: l10n.nodesTitle,
@@ -245,13 +268,14 @@ class _NodesPageState extends State<NodesPage> {
                 subscription: subscription,
                 nodes: grouped[subscription.id] ?? const [],
                 collapsed: !expanded(subscription.id),
+                onToggle: () => _toggleSource(subscription.id),
               ),
           if (grouped.containsKey(null) &&
               (source == null || source == _manualSource)) ...[
             // A section label is one small line high, which is too thin a
             // target on a phone, so the fold takes a little padding of its own.
             InkWell(
-              onTap: () => state.toggleSourceCollapsed(_manualSource),
+              onTap: () => _toggleSource(_manualSource),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: Gap.sm),
                 child: SectionLabel(
@@ -335,6 +359,7 @@ class _SubscriptionSection extends StatelessWidget {
     required this.subscription,
     required this.nodes,
     required this.collapsed,
+    required this.onToggle,
   });
 
   final AppState state;
@@ -343,6 +368,7 @@ class _SubscriptionSection extends StatelessWidget {
 
   /// Folded away: the header stays, its rows do not.
   final bool collapsed;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -357,7 +383,7 @@ class _SubscriptionSection extends StatelessWidget {
         Panel(
           padding: const EdgeInsets.all(14),
           accent: failure != null ? palette.amber : null,
-          onTap: () => state.toggleSourceCollapsed(subscription.id),
+          onTap: onToggle,
           child: Row(
             children: [
               Icon(
@@ -602,121 +628,123 @@ class _NodeRow extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 9),
         child: Panel(
           onTap: () => state.selectNode(node),
-        selected: selected,
-        accent: palette.violet,
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            // The region code replaces the generic server icon when the name
-            // gives one away; nodes whose region we cannot read keep the icon
-            // rather than showing a guess.
-            AnimatedContainer(
-              duration: motionOf(context, Motion.normal),
-              curve: Motion.curve,
-              width: 38,
-              height: 38,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: tintFill(color),
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-              ),
-              child: region == null
-                  ? Icon(Icons.dns_outlined, color: color, size: 18)
-                  : Text(
-                      region,
-                      style: monoStyle(
-                        size: 13,
-                        color: color,
-                        weight: FontWeight.w700,
-                      ),
-                    ),
-            ),
-            const SizedBox(width: Gap.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    node.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Row(
-                    children: [
-                      _ProtocolTag(label: node.protocol.label),
-                      const SizedBox(width: Gap.sm),
-                      Expanded(
-                        child: Text(
-                          node.server,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: monoStyle(size: 10, color: palette.faint),
+          selected: selected,
+          accent: palette.violet,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              // The region code replaces the generic server icon when the name
+              // gives one away; nodes whose region we cannot read keep the icon
+              // rather than showing a guess.
+              AnimatedContainer(
+                duration: motionOf(context, Motion.normal),
+                curve: Motion.curve,
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: tintFill(color),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: region == null
+                    ? Icon(Icons.dns_outlined, color: color, size: 18)
+                    : Text(
+                        region,
+                        style: monoStyle(
+                          size: 13,
+                          color: color,
+                          weight: FontWeight.w700,
                         ),
                       ),
-                    ],
-                  ),
-                ],
               ),
-            ),
-            const SizedBox(width: Gap.sm),
-            // A sweep turns every reading at once. Fading the colour instead of
-            // cutting it keeps a screen of rows from flickering as a block.
-            AnimatedDefaultTextStyle(
-              duration: motionOf(context, Motion.normal),
-              curve: Motion.curve,
-              // Merged onto the ambient style, not handed over whole: this
-              // widget replaces the subtree's default where a style passed to a
-              // Text merges into it, and dropping the inherited line height
-              // moves the reading a couple of pixels.
-              style: DefaultTextStyle.of(context).style.merge(
-                    monoStyle(color: color, weight: FontWeight.w600),
-                  ),
-              child: Text(
-                switch (node.latencyMs) {
-                  null => l10n.latencyUnknown,
-                  < 0 => l10n.latencyFail,
-                  final value => '$value',
-                },
+              const SizedBox(width: Gap.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      node.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        _ProtocolTag(label: node.protocol.label),
+                        const SizedBox(width: Gap.sm),
+                        Expanded(
+                          child: Text(
+                            node.server,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: monoStyle(size: 10, color: palette.faint),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (node.isTested && !node.isUnreachable)
+              const SizedBox(width: Gap.sm),
+              // A sweep turns every reading at once. Fading the colour instead of
+              // cutting it keeps a screen of rows from flickering as a block.
               AnimatedDefaultTextStyle(
                 duration: motionOf(context, Motion.normal),
                 curve: Motion.curve,
-                style: DefaultTextStyle.of(context)
-                    .style
-                    .merge(monoStyle(size: 9, color: color)),
-                child: const Text(' ms'),
+                // Merged onto the ambient style, not handed over whole: this
+                // widget replaces the subtree's default where a style passed to a
+                // Text merges into it, and dropping the inherited line height
+                // moves the reading a couple of pixels.
+                style: DefaultTextStyle.of(context).style.merge(
+                      monoStyle(color: color, weight: FontWeight.w600),
+                    ),
+                child: Text(
+                  switch (node.latencyMs) {
+                    null => l10n.latencyUnknown,
+                    < 0 => l10n.latencyFail,
+                    final value => '$value',
+                  },
+                ),
               ),
-            const SizedBox(width: Gap.xs),
-            IconButton(
-              onPressed: () => state.toggleFavorite(node.id),
-              visualDensity: VisualDensity.compact,
-              icon: Icon(
-                node.favorite ? Icons.star_rounded : Icons.star_border_rounded,
-                size: 19,
-                color: node.favorite ? palette.amber : palette.faint,
+              if (node.isTested && !node.isUnreachable)
+                AnimatedDefaultTextStyle(
+                  duration: motionOf(context, Motion.normal),
+                  curve: Motion.curve,
+                  style: DefaultTextStyle.of(context)
+                      .style
+                      .merge(monoStyle(size: 9, color: color)),
+                  child: const Text(' ms'),
+                ),
+              const SizedBox(width: Gap.xs),
+              IconButton(
+                onPressed: () => state.toggleFavorite(node.id),
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  node.favorite
+                      ? Icons.star_rounded
+                      : Icons.star_border_rounded,
+                  size: 19,
+                  color: node.favorite ? palette.amber : palette.faint,
+                ),
               ),
-            ),
-            // Eases the width open instead of reserving a slot on every row:
-            // at rest this is exactly the old layout — the mark on the selected
-            // row, nothing on the others — and only the change is animated.
-            AnimatedSize(
-              duration: motionOf(context, Motion.fast),
-              curve: Motion.curve,
-              child: selected
-                  ? Icon(
-                      Icons.check_circle,
-                      color: palette.violetSoft,
-                      size: 18,
-                    )
-                  : const SizedBox.shrink(),
-            ),
+              // Eases the width open instead of reserving a slot on every row:
+              // at rest this is exactly the old layout — the mark on the selected
+              // row, nothing on the others — and only the change is animated.
+              AnimatedSize(
+                duration: motionOf(context, Motion.fast),
+                curve: Motion.curve,
+                child: selected
+                    ? Icon(
+                        Icons.check_circle,
+                        color: palette.violetSoft,
+                        size: 18,
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ],
           ),
         ),
