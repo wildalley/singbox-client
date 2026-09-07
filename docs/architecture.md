@@ -156,7 +156,10 @@ desktop uses for mounting a disk. The kernel applies file capabilities at
 `execve`, and the controller spawns `sing-box` as its own child, so one attribute
 on one file is the whole mechanism — nothing elevates the app, and no privileged
 helper is installed. Two consequences: a package upgrade replaces the binary and
-the prompt comes back, and only a `sing-box` under a system prefix is eligible,
+strips the attribute with it — which is why the Arch package ships a libalpm hook
+that re-runs the `setcap` whenever pacman installs or upgrades `sing-box`, and the
+deb's `postinst` re-applies it when this package itself is installed or upgraded
+— and only a `sing-box` under a system prefix is eligible,
 since the path can arrive from `SINGBOX_BINARY` and an elevated `setcap` against
 an arbitrary path would be a capability grant on a file of the caller's choosing.
 A declined or unavailable prompt reports the `setcap` line instead.
@@ -211,9 +214,14 @@ that matters is a user with no window, not a user with two.
 1. Import a share link, subscription URL, sing-box JSON, or a file
    (`lib/data/importer.dart`, `lib/data/share_link_parser.dart`).
 2. Parse into `ProxyNode`s. Each node keeps its original outbound body in `raw`,
-   so re-rendering never drops fields this app does not model.
+   so re-rendering never drops fields this app does not model. One field is an
+   exception by design: a `fp=` uTLS fingerprint sing-box does not accept is
+   dropped at the door, because the engine rejects the whole config over one
+   unknown value and panels emit junk there (`unsafe` is in the wild).
 3. Render a full sing-box 1.13 config (`lib/data/config_builder.dart`): typed
-   DNS servers, rule `action` verbs, one `address` list on the TUN inbound.
+   DNS servers, rule `action` verbs, one `address` list on the TUN inbound. The
+   same fingerprint rule sweeps every outbound again here, so nodes stored
+   before the parser filtered it render clean too.
 4. Pass the rendered JSON to the controller; consume state, traffic, and log
    streams back.
 

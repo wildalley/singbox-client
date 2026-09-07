@@ -12,6 +12,7 @@ import '../models/app_settings.dart';
 import '../models/custom_rule.dart';
 import '../models/node.dart';
 import 'rule_sets.dart';
+import 'share_link_parser.dart';
 
 /// Outbound tags referenced by generated route rules.
 class ConfigTags {
@@ -83,7 +84,7 @@ class ConfigBuilder {
     for (final node in nodes) {
       final tag = outboundTag(node);
       nodeTags[node.id] = tag;
-      outbounds.add(node.toOutbound(tag));
+      outbounds.add(_withoutRejectedUtls(node.toOutbound(tag)));
     }
 
     final proxyMembers = nodeTags.values.toList();
@@ -427,6 +428,36 @@ class ConfigBuilder {
   /// share a name.
   static String outboundTag(ProxyNode node) =>
       '${_sanitizeTag(node.name)}-${node.id}';
+
+  /// Strips `tls.utls` members whose fingerprint sing-box rejects.
+  ///
+  /// Nodes imported before the share-link parser started filtering the `fp`
+  /// parameter still carry whatever the panel emitted — `unsafe` is in the
+  /// wild — and one rejected value makes the engine refuse the whole config
+  /// at startup. The parser now drops these at the door; this is the same
+  /// rule applied to what already reached storage.
+  static Map<String, dynamic> _withoutRejectedUtls(
+    Map<String, dynamic> outbound,
+  ) {
+    void walk(Map<dynamic, dynamic> map) {
+      map.removeWhere((key, value) {
+        if (key != 'utls' || value is! Map) return false;
+        return ShareLinkParser.utls(value['fingerprint']) == null;
+      });
+      for (final value in map.values) {
+        if (value is Map) {
+          walk(value);
+        } else if (value is List) {
+          for (final entry in value) {
+            if (entry is Map) walk(entry);
+          }
+        }
+      }
+    }
+
+    walk(outbound);
+    return outbound;
+  }
 
   /// sing-box tags allow most characters but spaces and quotes make configs
   /// hard to read and break some panels, so keep them conservative.

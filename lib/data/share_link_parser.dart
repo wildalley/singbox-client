@@ -21,6 +21,25 @@ class ShareLinkParseException implements Exception {
 class ShareLinkParser {
   const ShareLinkParser._();
 
+  /// The uTLS fingerprints sing-box accepts, which are also matched
+  /// case-insensitively. Panels emit junk in the `fp` parameter (`unsafe`
+  /// turns up in the wild), and one value the engine does not know makes it
+  /// refuse the whole config at startup — taking every other node down with
+  /// it — so anything outside this set never reaches a config.
+  static const utlsFingerprints = {
+    'chrome', 'firefox', 'edge', 'safari', 'ios', 'android', //
+    '360', 'qq', 'random', 'randomized',
+  };
+
+  /// The `tls.utls` member for [fingerprint], or null when the value is not
+  /// one sing-box accepts. Dropping beats substituting: uTLS is an
+  /// anti-fingerprinting extra, and a node without one still connects.
+  static Map<String, dynamic>? utls(Object? fingerprint) {
+    final fp = '${fingerprint ?? ''}'.trim().toLowerCase();
+    if (!utlsFingerprints.contains(fp)) return null;
+    return {'enabled': true, 'fingerprint': fp};
+  }
+
   /// Parses a newline/whitespace separated list of links, skipping the ones
   /// that fail so a single bad entry cannot discard a whole subscription.
   static ({List<ProxyNode> nodes, int skipped}) parseMany(
@@ -104,8 +123,7 @@ class ShareLinkParser {
         'server_name': sni.isNotEmpty ? sni : (host.isNotEmpty ? host : server),
         if ((json['alpn'] ?? '').toString().isNotEmpty)
           'alpn': json['alpn'].toString().split(','),
-        if ((json['fp'] ?? '').toString().isNotEmpty)
-          'utls': {'enabled': true, 'fingerprint': json['fp'].toString()},
+        ...?utls(json['fp']),
       };
     }
 
@@ -151,9 +169,8 @@ class ShareLinkParser {
       if ((query['alpn'] ?? '').isNotEmpty) {
         tls['alpn'] = query['alpn']!.split(',');
       }
-      if ((query['fp'] ?? '').isNotEmpty) {
-        tls['utls'] = {'enabled': true, 'fingerprint': query['fp']};
-      }
+      final utlsMember = utls(query['fp']);
+      if (utlsMember != null) tls['utls'] = utlsMember;
       if (security == 'reality') {
         tls['reality'] = {
           'enabled': true,
@@ -202,8 +219,7 @@ class ShareLinkParser {
         'enabled': true,
         'server_name': query['sni'] ?? query['peer'] ?? uri.host,
         if ((query['alpn'] ?? '').isNotEmpty) 'alpn': query['alpn']!.split(','),
-        if ((query['fp'] ?? '').isNotEmpty)
-          'utls': {'enabled': true, 'fingerprint': query['fp']},
+        ...?utls(query['fp']),
         if (query['allowInsecure'] == '1' || query['insecure'] == '1')
           'insecure': true,
       },

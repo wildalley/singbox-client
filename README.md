@@ -80,7 +80,10 @@ Shared by Linux and Windows.
 
 - Subscription URL, including `subscription-userinfo` quota and expiry
 - Share links: vless, vmess, trojan, shadowsocks, hysteria2, tuic, anytls,
-  socks, http — with reality, uTLS, and ws/grpc/h2/httpupgrade transports
+  socks, http — with reality, uTLS, and ws/grpc/h2/httpupgrade transports.
+  A `fp=` fingerprint the engine would reject (panels emit junk like `unsafe`,
+  which makes sing-box 1.14 refuse the whole config) is dropped at import and
+  again when the config is rendered, so one bad node cannot take down a start
 - sing-box JSON config, whole file or a bare `outbounds` array
 - Config file from disk
 
@@ -238,7 +241,8 @@ flutter analyze
 flutter test
 ```
 
-468 tests pass: share-link parsing, config rendering, custom-rule validation and
+474 tests pass: share-link parsing — including the uTLS fingerprint whitelist —
+config rendering, custom-rule validation and
 placement, import format detection, the Clash API client both desktop runtimes
 drive, the polkit capability grant, the Linux system-proxy backend against fakes,
 the shutdown path, the single-instance socket, tray menu construction, UI
@@ -311,7 +315,10 @@ pkexec setcap cap_net_admin,cap_net_raw+ep /usr/bin/sing-box
 The capability lives on the binary, and the app spawns `sing-box` as its own
 child, so this is asked once rather than per connection: no privileged helper is
 installed and nothing elevates the app itself. A `sing-box` package upgrade
-replaces the file and the prompt comes back on the next TUN start.
+replaces the file and strips the capability with it — on Arch this package ships
+a libalpm hook that re-applies the `setcap` whenever pacman installs or upgrades
+`sing-box`, so the prompt does not come back; the deb's `postinst` re-applies it
+when this package itself is installed or upgraded.
 
 Only a `sing-box` under a system prefix (`/usr`, `/opt`, `/bin`, `/sbin`) is
 elevated this way, because the path can come from `SINGBOX_BINARY` and running
@@ -336,7 +343,8 @@ the same `ProxyController` interface.
 - Per-app proxy is modelled in settings but has no UI yet.
 - Both Linux packages are verified structurally — deb member order and control
   fields, `pacman -Qip` metadata, root ownership, the `/usr/bin` symlink, the
-  desktop entry — but neither has been installed on a live system.
+  desktop entry. The Arch package has seen daily-driver use; the deb has not
+  been installed on a live system.
 - The Linux runtime is covered by unit tests against fakes, not by a live tunnel:
   no automated test starts a real `sing-box`, creates a tun, or writes real
   desktop proxy settings.

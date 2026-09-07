@@ -148,6 +148,18 @@ License: GPL-3.0-or-later
  can be found in /usr/share/common-licenses/GPL-3.
 COPYRIGHT
 
+  # TUN needs file capabilities on the engine. postinst can only cover the
+  # moment this package itself is installed or upgraded — an upgrade of
+  # sing-box strips them again and apt cannot delegate to this package, so
+  # the app still falls back to its own connect-time authorization there.
+  cat > "$debroot/DEBIAN/postinst" <<POSTINST
+#!/bin/sh
+if command -v setcap >/dev/null 2>&1 && command -v sing-box >/dev/null 2>&1; then
+  setcap cap_net_admin,cap_net_raw+ep "\$(command -v sing-box)" || true
+fi
+POSTINST
+  chmod 755 "$debroot/DEBIAN/postinst"
+
   # Installed-Size is what dpkg reports before unpacking; kibibytes.
   installed_size=$(du -ks "$debroot/usr" | cut -f1)
   cat > "$debroot/DEBIAN/control" <<CONTROL
@@ -210,6 +222,24 @@ if wants arch; then
     stage_tree "$archdir/root"
     install -Dm644 "$root/LICENSE" \
       "$archdir/root/usr/share/licenses/$PKG/LICENSE"
+
+    # A sing-box upgrade overwrites the binary and strips the file capabilities
+    # TUN mode needs — the failure the app reports as "TUN 未获授权". This hook
+    # re-applies them whenever pacman installs or upgrades the engine, so the
+    # fix outlives the system update that broke it.
+    install -d "$archdir/root/usr/share/libalpm/hooks"
+    cat > "$archdir/root/usr/share/libalpm/hooks/$PKG-restore-singbox-caps.hook" <<HOOK
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/bin/sing-box
+
+[Action]
+Description = Restoring cap_net_admin,cap_net_raw on sing-box for TUN mode
+When = PostTransaction
+Exec = /usr/bin/setcap cap_net_admin,cap_net_raw+ep /usr/bin/sing-box
+HOOK
 
     # depends: what the bundle actually links against, mapped to packages.
     # gtk3 pulls in the pango/cairo/gdk-pixbuf/atk/harfbuzz/glib/epoxy stack,

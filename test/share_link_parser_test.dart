@@ -160,6 +160,53 @@ trojan://b@two.example.com:443#Two
     });
   });
 
+  group('utls fingerprints', () {
+    String vlessWith(String fp) => 'vless://b831381d-6324-4d53-ad4f-'
+        '8cda48b30811@example.com:443?security=tls&sni=sni.example.com'
+        '&fp=$fp#Node';
+
+    test('keeps a fingerprint sing-box accepts', () {
+      final node = ShareLinkParser.parse(vlessWith('chrome'));
+
+      expect(
+        node.raw['tls']['utls'],
+        {'enabled': true, 'fingerprint': 'chrome'},
+      );
+    });
+
+    test('normalises the case panels emit', () {
+      final node = ShareLinkParser.parse(vlessWith('Chrome'));
+
+      expect(node.raw['tls']['utls']['fingerprint'], 'chrome');
+    });
+
+    test('drops a fingerprint the engine would reject', () {
+      // `unsafe` comes from real panels and makes sing-box 1.14 refuse the
+      // whole config at startup, taking every other node down with it.
+      for (final fp in ['unsafe', 'bogus', '']) {
+        final node = ShareLinkParser.parse(vlessWith(fp));
+        expect(node.raw['tls'], isNot(contains('utls')), reason: 'fp=$fp');
+      }
+    });
+
+    test('applies the same rule to trojan and vmess links', () {
+      final trojan = ShareLinkParser.parse(
+        'trojan://pw@example.com:443?fp=unsafe#Trojan',
+      );
+      expect(trojan.raw['tls'], isNot(contains('utls')));
+
+      final payload = base64.encode(utf8.encode(jsonEncode({
+        'add': 'example.com',
+        'port': '443',
+        'id': '11111111-2222-3333-4444-555555555555',
+        'tls': 'tls',
+        'fp': 'unsafe',
+      })));
+      final vmess = ShareLinkParser.parse('vmess://$payload');
+      expect(vmess.raw['tls'], isNot(contains('utls')));
+    });
+  });
+
   test('ids are stable across re-imports but differ per server', () {
     const link = 'trojan://pw@example.com:443#Name';
     final first = ShareLinkParser.parse(link);

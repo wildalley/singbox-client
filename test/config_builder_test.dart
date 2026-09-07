@@ -97,6 +97,56 @@ void main() {
       expect(_outbound(config, ConfigTags.proxy)!['default'], ConfigTags.auto);
     });
 
+    test('strips a uTLS fingerprint sing-box rejects, keeps one it accepts',
+        () {
+      // Nodes stored before the share-link parser filtered `fp` can still
+      // carry `unsafe`, which makes the engine refuse the whole config.
+      final bad = ProxyNode(
+        id: 'bad',
+        name: 'Stale Import',
+        protocol: NodeProtocol.vless,
+        server: 'example.com',
+        serverPort: 443,
+        raw: {
+          'uuid': 'b831381d-6324-4d53-ad4f-8cda48b30811',
+          'tls': {
+            'enabled': true,
+            'server_name': 'sni.example.com',
+            'utls': {'enabled': true, 'fingerprint': 'unsafe'},
+          },
+        },
+      );
+      final good = ProxyNode(
+        id: 'good',
+        name: 'Valid Fingerprint',
+        protocol: NodeProtocol.vless,
+        server: 'example.com',
+        serverPort: 443,
+        raw: {
+          'uuid': 'b831381d-6324-4d53-ad4f-8cda48b30811',
+          'tls': {
+            'enabled': true,
+            'server_name': 'sni.example.com',
+            'utls': {'enabled': true, 'fingerprint': 'chrome'},
+          },
+        },
+      );
+      final config = _build(
+        nodes: [bad, good],
+        selectedNodeId: 'good',
+        settings: const AppSettings(),
+      );
+
+      final badTls = _outbound(config, ConfigBuilder.outboundTag(bad))!['tls']
+          as Map;
+      expect(badTls, isNot(contains('utls')));
+      expect(badTls['server_name'], 'sni.example.com');
+
+      final goodTls = _outbound(config, ConfigBuilder.outboundTag(good))!['tls']
+          as Map;
+      expect(goodTls['utls']['fingerprint'], 'chrome');
+    });
+
     test('with no nodes the selector points at direct so start still works',
         () {
       final config = _build(
