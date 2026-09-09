@@ -160,6 +160,7 @@ List<ProxyNode> _otherNodes() => [
 Future<({AppState state, FakeProxyController controller})> _harness({
   bool connected = false,
   bool logs = false,
+
   /// How many subscriptions the fixture holds. The nodes page hides its source
   /// picker below two, so the second source is what puts that row in a golden.
   int sources = 1,
@@ -196,12 +197,17 @@ Future<({AppState state, FakeProxyController controller})> _harness({
   ]);
   await storage.writeSettings(settings);
   final controller = FakeProxyController();
-  final state = AppState(storage: storage, controller: controller);
+  // Start already attached to the synthetic session. Emitting a connection
+  // after AppState subscribes triggers real subscription/IP refresh work,
+  // which can race asset decoding and turn a visual fixture into HTTP errors.
   if (connected) {
     controller.emit(ProxyState(
       stage: ProxyStage.connected,
       since: _pinnedNow.subtract(const Duration(hours: 4, minutes: 12)),
     ));
+  }
+  final state = AppState(storage: storage, controller: controller);
+  if (connected) {
     // Enough samples for a shaped sparkline: a slow build, a peak, a dip.
     const shape = [
       20, 30, 26, 40, 55, 48, 70, 90, 120, 100, 85, 110, 140, //
@@ -282,6 +288,19 @@ Future<void> _shot(
   );
   addTearDown(harness.state.dispose);
   await tester.pumpWidget(SingBoxApp(state: harness.state));
+  // Asset IO / codec completion runs outside the test clock. Pumping fake time
+  // alone can capture an empty image slot and silently approve missing art.
+  final context = tester.element(find.byType(MaterialApp));
+  await tester.runAsync(() async {
+    for (final asset in [
+      'assets/branding/app-icon.png',
+      'assets/branding/signal-flow.webp',
+    ]) {
+      await precacheImage(AssetImage(asset), context, onError: (error, stack) {
+        throw error;
+      });
+    }
+  });
   await tester.pump(const Duration(milliseconds: 300));
   await navigate?.call();
   await tester.pump(const Duration(milliseconds: 400));
@@ -326,6 +345,39 @@ void main() {
           connected: true,
         ),
       );
+      for (final theme in [AppThemeMode.dark, AppThemeMode.light]) {
+        final suffix = theme.name;
+        final settings = AppSettings(
+          themeMode: theme,
+          language: AppLanguage.chinese,
+        );
+        testWidgets(
+          'home / connected / desktop / chinese / $suffix',
+          (tester) => _shot(
+            tester,
+            'home_desktop_zh_$suffix',
+            size: const Size(1440, 1000),
+            connected: true,
+            settings: settings,
+          ),
+        );
+        testWidgets(
+          'nodes / desktop / chinese / $suffix',
+          (tester) => _shot(
+            tester,
+            'nodes_desktop_zh_$suffix',
+            size: const Size(1270, 720),
+            connected: true,
+            settings: settings,
+            sources: 2,
+            collapsed: const {'sub1'},
+            navigate: () async {
+              await tester.tap(find.byIcon(Icons.hub_outlined).first);
+              await tester.pump();
+            },
+          ),
+        );
+      }
       // The other three dimensions of the render matrix are asserted only as
       // "renders without throwing", which cannot see a colour. These two put
       // pixels on the non-default axes: light mode, where the foreground

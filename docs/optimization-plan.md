@@ -2,7 +2,7 @@
 
 > 评审基线：`841f6d6 Fix Windows TUN elevation handoff`
 > 评审范围：Android、Linux、Windows 运行时，桌面 Shell，配置与订阅数据流，以及状态和持久化生命周期。
-> 文档性质：代码评审与后续计划；本次不包含运行逻辑修改。
+> 文档性质：代码评审与后续计划；实施进度会随已落地功能同步更新。
 
 ## 实施进度
 
@@ -17,6 +17,41 @@
   Linux/Windows/Android 各自控制器差异化覆盖，配合 `unsupported` 占位控制器保留未实现平台的可用性。
 - **UI 模块化**：`home_page` 拆为 `home_active_node`、`home_connection`、`home_dashboard`、`home_traffic`，
   通用控件拆为 `widgets_data` / `widgets_layout`；`lib/app.dart` 承载应用装配，`main.dart` 退化为入口。
+- **动态端口和统一配置校验（第三阶段）**：新增 `lib/data/port_allocator.dart`，每次启动前在
+  loopback 上探测端口；原先固定的 9291 / 2080 降级为 `ConfigBuilder.defaultClashApiPort` /
+  `defaultLocalProxyPort`，仅在被其他代理软件占用时才更换，用户自己的防火墙规则和面板书签因此继续有效。
+  端口在权限授予之后、`start` 之前选定（这是内核绑定前的最后时机），并在整个会话内保持不变——reload
+  必须渲染出运行中内核已经绑定的同一组端口，否则会切断桌面运行时轮询的控制通道。分配失败不致命，
+  回退到首选端口对，与该分配器存在之前的行为一致。应用自身的三个 HTTP 取数路径（订阅导入、规则集
+  下载、出口 IP 查询）随 `viaLocalProxy` 一并接收会话端口。
+  校验则统一到 `_renderConfig()`：所有平台的配置都从这里离开状态层，此前只有桌面控制器会在边界的
+  另一侧检查输入，Android 则把 JSON 直接交给 libbox。现在同一个 `ConfigFacts` 在配置离开之前就会
+  拒绝它，并以结构化的 `NoticeKind.configInvalid` 上报（错误信息只指出字段名，绝不含取值——配置中
+  带有节点凭据和 Clash API token）。
+- **背景信号场接入真实流量**：`ConsoleBackground` 的节点/链路场此前是固定图形加 12 秒自由循环，
+  在饱和下载和空闲隧道下看起来完全一样；且自 `1487a3e` 拆分 shell 之后没有任何位置传入
+  `showSignals`，实际是死代码。现在由 `app_state` 的 `downlinkHistory` / `uplinkHistory` 驱动，
+  归一化方式与 `TrafficFlowChart` 一致，因此背景和前景图表对同一次突发的表述不会矛盾。动画改为
+  每个采样一次心跳而非 `repeat()`：空闲隧道自行静止，不再常驻 ticker——顺带修正了一个隐患，
+  常驻 ticker 会让任何渲染已连接界面的 widget 测试永远等不到帧稳定，只能超时而非失败。前景
+  `SignalArtwork` 进一步改为低频底图漂移、少量主丝线波动和无跳点的羽化高光，空闲与减弱动画
+  状态保持静止。
+- **链式代理（第三阶段）**：`ProxyNode` 持久化上游节点 ID，节点页提供「链式代理」选择面板，
+  配置渲染时将多跳关系解析为 sing-box `detour` 标签；删除节点、刷新订阅和重载运行中的配置都会
+  清理或应用关系，并在状态边界阻止自环与环路。`auto` 仍按链的入口节点测速，链中每一跳可继续
+  指向下一跳。配置边界同时按 endpoint ID 合并重复记录，保留节点页别名但避免生成重复 outbound
+  tag，兼容旧版本已经保存的重复订阅数据。
+
+- **共享桌面运行时基座（第三阶段，部分完成）**：新增 `lib/platform/desktop_runtime.dart`，
+  `DesktopRuntime` 承载两个桌面控制器此前各写一遍的四条广播流、会话代号记账
+  （`beginSession` / `isCurrentSession`，用于让被取代的启动作废）、生命周期串行队列
+  （`enqueueLifecycle`，失败不污染队列）、每会话仅报一次错的闩锁，以及子进程 stdout/stderr
+  的行泵。Linux 与 Windows 控制器各减约 175 行，改为继承同一基座。
+  平台差异（核心发现、tun 授权、停止信号、系统代理接管）刻意留在子类——把它们也硬塞进
+  一个形状，就不是重构而是重写了。
+  这次抽取顺带暴露出一处**已经发生的行为分叉**：Linux 的注释写明 `/group/{n}/delay` 是
+  Clash.Meta 扩展、sing-box 并不实现，因此逐个成员测速；而 Windows 的 `urlTest()` 正是在调
+  这个接口。两份实现各自演化正是计划里担心的风险，已在下方「抽取共享桌面运行时」记录待办。
 
 后续计划（Windows 单实例/提权 IPC、API 超时轮询、WinINet journal、系统代理接管状态等 P0/P1 项）仍在
 本计划范围内待实施。本重构时的全量验证：`flutter analyze` 无告警，`flutter test` 全绿。
@@ -33,7 +68,7 @@
 - Android 服务生命周期独立于 Flutter 引擎，具备重连时回放状态的基础。
 - Linux 配置文件使用受限权限的 XDG 数据目录，Windows 使用每次运行的配置文件。
 - 日志和 UI 通知已经做了限流或批处理，Linux 的代理组轮询间隔也比 Windows 更保守。
-- 当前测试结果：全量测试 `468 passed / 14 skipped`，静态分析通过；Windows UAC、WinINet 和真实 TUN 仍缺少目标平台上的实时验证。
+- 当前测试结果：全量测试 `567 passed / 17 skipped`，静态分析通过；Windows UAC、WinINet 和真实 TUN 仍缺少目标平台上的实时验证。
 
 ## 优先级问题
 
@@ -144,7 +179,7 @@ Linux Clash API 的 HTTP/WebSocket 请求没有统一的连接和读取超时，
 
 ### 清理或实现未完成配置
 
-`perAppProxyEnabled` 和 `perAppProxyBypass` 已进入设置模型和持久化，但尚未接入 UI、配置渲染或 Android VPN builder。建议在功能实现前移除公开入口或明确标注实验状态，避免形成“设置成功但不生效”的体验。
+`perAppProxyEnabled` 和 `perAppProxyBypass` 已接入设置 UI、配置渲染和 Android VPN builder。后续可补充对不可启动应用的管理，以及更细的应用分类和批量操作。
 
 ### 统一配置事实和错误模型
 
@@ -161,22 +196,74 @@ Linux 和 Windows 都需要从渲染后的 JSON 中提取端口、API secret、�
 
 UI 再根据平台和语言进行本地化，避免底层错误直接透传英文。
 
-### 抽取共享桌面运行时
+### 抽取共享桌面运行时（第一步已完成，其余待做）
 
-`LinuxProxyController` 和 `WindowsProxyController` 重复了进程监管、启动 readiness、日志解析、流量统计、代理组更新和停止清理逻辑。可以抽取：
+`LinuxProxyController` 和 `WindowsProxyController` 重复了进程监管、启动 readiness、日志解析、流量统计、代理组更新和停止清理逻辑。原计划抽取四层：
 
-- `DesktopProcessRuntime`：进程启动、退出、信号、日志和超时；
-- `ClashApiRuntime`：HTTP/WebSocket、认证、重连和轮询；
-- `ConfigFacts`：从渲染配置提取运行时事实；
-- 平台适配层：权限、系统代理、核心路径和进程参数。
+- ~~会话记账与生命周期串行化~~：已完成，见「实施进度」中的 `DesktopRuntime` 条目；
+- `DesktopProcessRuntime`：进程启动、退出、信号和超时——两侧仍各自实现，且**语义本就不同**
+  （Linux 发 `SIGTERM`，Windows 先 `SIGINT` 再逐级升级），强行统一会变成改行为而非重构，
+  应先确认哪一种是想要的，再决定是否收拢；
+- `ClashApiRuntime`：HTTP/WebSocket、认证、重连和轮询——**这层是当前最值得做的**，见下；
+- ~~`ConfigFacts`~~：已完成，见「实施进度」；
+- 平台适配层：权限、系统代理、核心路径和进程参数——差异是真实的，保留在各自控制器中。
 
-这样可以减少两个平台行为逐渐分叉的风险。
+**重构过程中发现的既有分叉（已查证并修正）**：Linux 的 `urlTest()` 注释断言 `/group/{n}/delay` 是
+Clash.Meta 扩展、sing-box 并不实现，因此它逐个测试成员；而 Windows 的 `urlTest()` 一直在调这个接口。
+查证结论是**注释错了**：该路由位于 `experimental/clashapi/api_meta_group.go`，自 v1.12.0（本仓库
+`singBoxMinimumVersion`）起就已挂载；对本机运行的 sing-box 1.14.0 实测 `GET /group/proxy/delay`
+返回 200 与 `{"auto":444,"direct":444}`。已在 `ClashApiClient` 补上 `groupDelay()`，Linux 改为优先
+一次请求测完整组，逐个测速降级为兜底路径（用于其他 Clash 实现，或批量测速失败时——它还能渐进
+回填结果）。实测确认的三处引擎行为已写进该方法的文档：缺少或无法解析 `timeout` 返回 400；未能连通
+的成员被省略而非报 0（因此调用方应保留旧读数，而不是用 0 覆盖）；`http://` 的 url 会被引擎丢弃。
+
+分叉的**根因仍在**：Windows 完全没有走 `ClashApiClient`，而是手写了一套 `HttpClient` 请求
+（`_apiRequest` / `_pollStats` / `_pollGroups` / `_selectedOutbound`）。把 Windows 迁到
+`ClashApiClient` 会消掉约 200 行重复代码，并让两个平台不可能再对同一个内核给出相反判断，但它会
+**改变 Windows 的行为**（轮询换成 WebSocket），因此属于独立一项、需要在 Windows 上验证，不应混在
+行为保持型重构里。
 
 ### 端口、核心和平台边界
 
-- 固定的 Clash API 与本地混合端口容易和其他代理软件冲突，后续可改为运行时动态分配并注入配置。
+- ~~固定的 Clash API 与本地混合端口容易和其他代理软件冲突，后续可改为运行时动态分配并注入配置。~~
+  已完成，见「实施进度」中的动态端口条目。
 - Windows 当前主要检查核心文件是否存在；应补充最低版本、文件权限和可选 hash 校验。
 - 桌面 Shell 声明支持 macOS，但仓库没有 macOS runtime 实现，应统一平台支持声明。
+
+### 链式代理（前置代理）
+
+sing-box 的 Dial Fields 提供 `detour`：出站 A 设 `detour: "B"` 后，A 的流量经由 B 建立连接，B 还可以继续
+`detour` 到 C，落地形态即「机房中转 → 家宽出口」。渲染层改动很小——`ProxyNode.toOutbound()` 已经是
+`...raw` 透传，`detour` 只是多一个字段。工作量在模型和 UI：需要表达「节点 A 经由节点 B」这一关系，
+并决定它与 `auto`（urltest）组的交互——链上的节点是否参与自动测速、以及测速结果归属于链还是归属于出口。
+
+一个容易踩的硬性限制：设置 `detour` 后该出站的其他 dial 字段全部失效（socket 由上游打开），因此
+`bind_interface`、`domain_resolver` 这类必须写在上游那一条上。
+
+已完成：`ProxyNode.detourNodeId` 负责持久化关系，节点页用 bottom sheet 选择直接连接或上游节点，
+状态层在保存和运行中 reload 前再次校验环路，订阅刷新/删除会清理失效引用。配置渲染先建立节点
+tag 表，再把节点 ID 解析成 sing-box outbound tag；重复 endpoint ID 只输出首条 outbound，避免
+旧订阅数据触发 `duplicate outbound tag` 并阻塞整个隧道启动。`auto` 仍选择入口节点并参与测速，
+链上的每一跳可以继续设置自己的 `detour`。
+
+### OpenVPN 节点支持（独立大项，需评估收益）
+
+与链式代理是两件事，不应混在一起推进。现状有三处阻碍：
+
+- `importer.dart` 只处理分享链接、sing-box JSON 和 base64 链接列表，没有 YAML 解析器，Clash 风格的
+  订阅（`proxies:` 列表）目前无法导入；
+- sing-box 中 openvpn-client 是 **endpoint 而非 outbound**，且自 1.14.0 才提供，而本仓库
+  `singBoxMinimumVersion` 仍为 `(1, 12)`，`NodeProtocol` 也没有对应项（`fromTag` 会判为 `unknown`）。
+  它要渲染进 `endpoints` 数组，与现有 outbound 渲染路径不是一回事；
+- 字段名与 Clash 差异较大（`ca`/`cert`/`key` → `tls.certificate`/`client_certificate`/`client_key`，
+  `data-ciphers` → `data_ciphers`，`tls-auth`/`tls-crypt` → `tls.control_wrap`），`raw` 透传救不了，
+  必须写字段映射。另外 TLS 模式下 `cipher` 会被忽略，只在 `static_key` 模式生效。
+
+需要注意 endpoint **不安装操作系统路由**：`routes` 不写入系统路由表，`redirect_gateway` 也只表达偏好、
+不装默认路由，`block-local` 不支持。这对「家宽落地」的实际效果有影响，建议先在单个节点上验证再投入。
+
+`tools/vpngate2singbox.php` 已经能把 VPNGate 的 .ovpn 转成 sing-box endpoint 配置（含 `detour` 参数），
+可用于在抬升内核底线之前先行验证协议本身是否可用。
 
 ## 推荐迭代顺序
 
@@ -198,10 +285,15 @@ UI 再根据平台和语言进行本地化，避免底层错误直接透传英�
 ### 第三阶段：结构和功能扩展
 
 - 抽取共享桌面运行时；
-- 动态端口和统一配置校验；
+- ~~动态端口和统一配置校验~~（已完成，见「实施进度」）；
+- ~~链式代理（`detour`）~~（已完成模型、节点页配置、持久化、环路校验和运行中 reload）；
 - 完成或移除按应用代理配置；
 - 结构化错误与完整本地化；
 - 扩展不支持 GNOME/KDE 的 Linux 桌面代理后端。
+
+OpenVPN 节点支持不列入本阶段顺序：它要抬升内核底线到 1.14、新增 YAML 解析和 endpoint 渲染路径，
+规模与上面各项不在一个量级，且实际收益需要先用 `tools/vpngate2singbox.php` 在单个节点上验证。
+确认协议可用之后再单独排期。
 
 ## 验收与回归要求
 

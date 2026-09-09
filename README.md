@@ -1,8 +1,9 @@
 # SingBox Client
 
 A Flutter sing-box client for **Android**, **Linux**, and **Windows**. The
-interface follows the Google Stitch **Obsidian Signal** design system, in dark
-and light variants, with English and Chinese localization.
+interface follows the **Synapse V4** reference: obsidian panels, violet signal
+artwork, and a silver-ribbon S icon, with dark/light themes and English/Chinese
+localization. See the [visual refresh notes](docs/design/refresh-2026-09.md).
 
 All three platforms run the proxy, by different means. Android embeds the
 engine: a Kotlin `VpnService` drives sing-box through a self-built
@@ -101,6 +102,11 @@ measured latency and favourites.
   nodes are measured after the tunnel starts so they are not falsely marked
   unreachable
 - Nodes grouped by source, foldable, searchable, and sortable by latency
+- Per-node chain proxy selection: route one node through another, with multi-hop
+  chains and loop protection
+- Dashboard and desktop-rail signal artwork responds to live throughput with a
+  restrained silk drift and feathered highlight; idle and reduced-motion states
+  remain still
 - Exit-IP readout, fetched through the tunnel, which is the one check that says
   whether traffic is really leaving by the node rather than the user's own line
 - Subscriptions refresh themselves on connect when they have gone stale
@@ -241,14 +247,16 @@ flutter analyze
 flutter test
 ```
 
-474 tests pass: share-link parsing — including the uTLS fingerprint whitelist —
-config rendering, custom-rule validation and
+567 tests pass and 17 are skipped: share-link parsing — including the uTLS
+fingerprint whitelist — config rendering, chain-proxy detours and loop
+protection, duplicate endpoint-tag handling, custom-rule validation and
 placement, import format detection, the Clash API client both desktop runtimes
 drive, the polkit capability grant, the Linux system-proxy backend against fakes,
 the shutdown path, the single-instance socket, tray menu construction, UI
-interaction against a fake controller, and localization/theme coverage including
-palette contrast ratios. Windows privilege decisions have unit coverage; its
-WinINet bridge, Job Object, and live TUN adapter still need a Windows session.
+interaction against a fake controller, live-throughput artwork, and
+localization/theme coverage including palette contrast ratios. Windows privilege
+decisions have unit coverage; its WinINet bridge, Job Object, and live TUN
+adapter still need a Windows session.
 
 Visual regression snapshots are gated behind an environment variable, because
 they render on the host's font stack and are only meaningful where they were
@@ -340,7 +348,7 @@ the same `ProxyController` interface.
   (`android/app/build.gradle.kts`). Replace before distributing.
 - arm64 only. Other ABIs need another `scripts/build-libbox.sh` run with a
   different `-target`.
-- Per-app proxy is modelled in settings but has no UI yet.
+- Android per-app proxy can exclude selected launchable apps from the VPN.
 - Both Linux packages are verified structurally — deb member order and control
   fields, `pacman -Qip` metadata, root ownership, the `/usr/bin` symlink, the
   desktop entry. The Arch package has seen daily-driver use; the deb has not

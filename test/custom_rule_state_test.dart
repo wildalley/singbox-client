@@ -13,7 +13,7 @@ import 'package:singbox_client/data/storage.dart';
 import 'package:singbox_client/models/custom_rule.dart';
 import 'package:singbox_client/state/app_state.dart';
 
-import 'widget_test.dart' show FakeProxyController, node;
+import 'widget_test.dart' show FakeProxyController, fakePortAllocator, node;
 
 Future<({AppState state, FakeProxyController controller, Storage storage})>
     harness({List<CustomRule> rules = const []}) async {
@@ -23,7 +23,11 @@ Future<({AppState state, FakeProxyController controller, Storage storage})>
   if (rules.isNotEmpty) await storage.writeCustomRules(rules);
   final controller = FakeProxyController();
   return (
-    state: AppState(storage: storage, controller: controller),
+    state: AppState(
+      storage: storage,
+      controller: controller,
+      portAllocator: fakePortAllocator,
+    ),
     controller: controller,
     storage: storage,
   );

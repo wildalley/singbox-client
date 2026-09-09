@@ -71,7 +71,8 @@ if wants deb || wants arch; then
     exit 1
   }
 
-  # The launcher SVG is the only scalable source; Android's PNGs stop at 192px.
+  # The launcher SVG wraps the full-resolution master; Android's legacy PNGs
+  # stop at 192px. Both use the same artwork.
   mkdir -p "$icons"
   if command -v rsvg-convert >/dev/null; then
     for size in 64 128 256 512; do

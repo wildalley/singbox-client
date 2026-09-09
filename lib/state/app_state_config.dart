@@ -20,11 +20,30 @@ extension _AppStateConfig on AppState {
         selectedNodeId: selectedNode?.id,
         settings: _settings,
         clashSecret: clashSecret ?? _clashSecret,
+        clashApiPort: _clashApiPort,
+        localProxyPort: _localProxyPort,
         customRules: _customRules,
         ruleSetDir: _ruleSetDir,
       );
 
-  String _renderConfig() => ConfigBuilder.encode(_buildConfig());
+  /// The config to hand a runtime, validated on the way out.
+  ///
+  /// Every platform's config leaves through here, which is the point: the
+  /// desktop controllers used to be the only ones that checked their input, and
+  /// they check it *after* the boundary — so an unusable config reached Android's
+  /// libbox unexamined and surfaced as whatever the engine made of it. Validating
+  /// here means one gate, and it fails before a process starts or a VPN service
+  /// comes up rather than as a control-API timeout seconds later.
+  ///
+  /// Throws [FormatException]. The messages name fields, never values: this
+  /// config holds the node credentials and the Clash API token.
+  String _renderConfig() {
+    final config = _buildConfig();
+    // The decoded map, not the encoded string: the desktop path parses the JSON
+    // again on the far side, and there is nothing to learn from doing it twice.
+    ConfigFacts.fromMap(config);
+    return ConfigBuilder.encode(config);
+  }
 
   // ------------------------------------------------------------ custom rules
 
@@ -86,6 +105,15 @@ extension _AppStateConfig on AppState {
     final operationId = _runtimeOperationId;
     try {
       await _controller.reload(_renderConfig());
+    } on FormatException catch (error) {
+      // The rules are already persisted, so this reports that they are not live
+      // yet rather than that they are lost — the same distinction the settings
+      // reload draws.
+      if (_runtimeOperationId == operationId) {
+        _notify(
+          AppNotice.error(NoticeKind.configInvalid, detail: error.message),
+        );
+      }
     } on Object catch (error) {
       if (_runtimeOperationId == operationId) {
         _notify(

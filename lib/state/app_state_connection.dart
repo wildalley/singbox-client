@@ -39,9 +39,41 @@ extension _AppStateConnection on AppState {
         _notify(const AppNotice.error(NoticeKind.permissionDenied));
         return;
       }
+      // Ports are chosen here, not at build time: this is the last moment
+      // before the core binds them, so a number another program grabbed while
+      // the app sat idle is still caught. They then hold for the session, since
+      // a reload has to render what the live core is already listening on.
+      await _allocatePorts();
+      if (!_isCurrentRuntimeOperation(operationId)) return;
+
       await _controller.start(_renderConfig());
+    } on FormatException catch (error) {
+      // The config never left the app, so nothing is running and there is
+      // nothing to stop — but the button has to come back off "connecting", and
+      // a stale intent would otherwise reconnect on the next state event.
+      if (!_isCurrentRuntimeOperation(operationId)) return;
+      _desiredConnection = false;
+      _notify(AppNotice.error(NoticeKind.configInvalid, detail: error.message));
     } on Object catch (error) {
       if (_isCurrentRuntimeOperation(operationId)) _fail(_short(error));
+    }
+  }
+
+  /// Picks the session's loopback ports, preferring the documented pair.
+  ///
+  /// A failure here is not fatal: the allocator only probes, so the fallback is
+  /// the preferred pair — exactly what every build did before this existed.
+  Future<void> _allocatePorts() async {
+    try {
+      final ports = await _portAllocator(
+        preferredClashApiPort: ConfigBuilder.defaultClashApiPort,
+        preferredLocalProxyPort: ConfigBuilder.defaultLocalProxyPort,
+      );
+      _clashApiPort = ports.clashApiPort;
+      _localProxyPort = ports.localProxyPort;
+    } on Object {
+      _clashApiPort = ConfigBuilder.defaultClashApiPort;
+      _localProxyPort = ConfigBuilder.defaultLocalProxyPort;
     }
   }
 
@@ -151,6 +183,55 @@ extension _AppStateConnection on AppState {
     }
   }
 
+  /// Persists one node's upstream and reloads the live config when needed.
+  ///
+  /// The UI filters invalid edges, but this repeats the guard at the state
+  /// boundary so a stale sheet cannot write a cycle.
+  Future<void> _setNodeDetourIntent(
+    String nodeId,
+    String? detourNodeId,
+  ) =>
+      _enqueue(() => _setNodeDetour(nodeId, detourNodeId));
+
+  Future<void> _setNodeDetour(String nodeId, String? detourNodeId) async {
+    if (!_nodes.any((node) => node.id == nodeId)) return;
+    if (detourNodeId != null &&
+        (!_nodes.any((node) => node.id == detourNodeId) ||
+            wouldCreateDetourCycle(_nodes, nodeId, detourNodeId))) {
+      return;
+    }
+
+    _nodes = [
+      for (final node in _nodes)
+        if (node.id == nodeId)
+          node.copyWith(
+            detourNodeId: detourNodeId,
+            clearDetour: detourNodeId == null,
+          )
+        else
+          node,
+    ];
+    await _storage.writeNodes(_nodes);
+    notifyListeners();
+
+    if (!isConnected) return;
+    final operationId = _runtimeOperationId;
+    try {
+      await _controller.reload(_renderConfig());
+    } on FormatException catch (error) {
+      if (_runtimeOperationId == operationId) {
+        _notify(
+          AppNotice.error(NoticeKind.configInvalid, detail: error.message),
+        );
+      }
+    } on Object catch (error) {
+      if (_runtimeOperationId == operationId) {
+        _notify(
+            AppNotice.error(NoticeKind.reloadFailed, detail: _short(error)));
+      }
+    }
+  }
+
   /// Persists settings and only reloads when the rendered runtime config changes.
   Future<void> _applySettingsIntent(AppSettings settings) =>
       _enqueue(() => _applySettings(settings));
@@ -165,6 +246,15 @@ extension _AppStateConnection on AppState {
     final operationId = _runtimeOperationId;
     try {
       await _controller.reload(_renderConfig());
+    } on FormatException catch (error) {
+      // Named for what it is rather than folded into reloadFailed: the live
+      // tunnel is still up on the previous config, which is the opposite of
+      // what "reload failed" leads a user to check.
+      if (_runtimeOperationId == operationId) {
+        _notify(
+          AppNotice.error(NoticeKind.configInvalid, detail: error.message),
+        );
+      }
     } on Object catch (error) {
       if (_runtimeOperationId == operationId) {
         _notify(

@@ -17,7 +17,7 @@ import 'package:singbox_client/data/storage.dart';
 import 'package:singbox_client/models/node.dart';
 import 'package:singbox_client/state/app_state.dart';
 
-import 'widget_test.dart' show FakeProxyController, node;
+import 'widget_test.dart' show FakeProxyController, fakePortAllocator, node;
 
 /// An [AppState] wired to [lookup], with [nodes] already stored.
 Future<AppState> stateWith(
@@ -31,6 +31,7 @@ Future<AppState> stateWith(
     storage: storage,
     controller: FakeProxyController(),
     ipLookup: lookup,
+    portAllocator: fakePortAllocator,
   );
 }
 
@@ -44,11 +45,19 @@ class FakeIpLookup extends IpLookup {
   final void Function()? onFetch;
 
   final calls = <bool>[];
+
+  /// The port each fetch was told to use, so a test can assert the lookup
+  /// follows the session's loopback inbound rather than the preferred number.
+  final ports = <int?>[];
   var disposed = false;
 
   @override
-  Future<ExitAddress?> fetch({required bool viaLocalProxy}) async {
+  Future<ExitAddress?> fetch({
+    required bool viaLocalProxy,
+    int? localProxyPort,
+  }) async {
     calls.add(viaLocalProxy);
+    ports.add(localProxyPort);
     onFetch?.call();
     return answer;
   }

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../state/app_state.dart';
 import '../version.dart';
+import 'brand.dart';
 import 'components.dart';
 import 'home_page.dart';
 import 'logs_page.dart';
@@ -125,13 +126,20 @@ class _AppShellState extends State<AppShell> {
               tab: _tab,
               child: page,
             );
+            // Only the dashboard gets the signal field, and only while the
+            // tunnel is up: it reports throughput, so it has nothing to say on
+            // the settings or rules screens and would just be noise under text.
+            final signals = connected && _tab == AppTab.home;
             if (constraints.maxWidth >= 840) {
               return Scaffold(
-                body: ConsoleBackground(
+                body: _Backdrop(
+                  state: widget.state,
                   accent: accent,
+                  signals: signals,
                   child: Row(
                     children: [
                       _DesktopRail(
+                        state: widget.state,
                         selected: _tab,
                         connected: connected,
                         onSelected: _goToTab,
@@ -144,8 +152,10 @@ class _AppShellState extends State<AppShell> {
             }
 
             return Scaffold(
-              body: ConsoleBackground(
+              body: _Backdrop(
+                state: widget.state,
                 accent: accent,
+                signals: signals,
                 child: SafeArea(bottom: false, child: transitioningPage),
               ),
               bottomNavigationBar: NavigationBar(
@@ -165,6 +175,52 @@ class _AppShellState extends State<AppShell> {
           },
         );
       },
+    );
+  }
+}
+
+/// The console backdrop, fed the tunnel's throughput.
+///
+/// A separate widget so the traffic samples do not rebuild the page in front of
+/// them. [AppState] notifies on every reading — about once a second while
+/// connected — and the shell's own build produces the whole page subtree, so
+/// listening up there would rebuild five screens' worth of widgets a second to
+/// move some dots. The page arrives here as an already-built [child] that
+/// [ListenableBuilder] passes through untouched.
+class _Backdrop extends StatelessWidget {
+  const _Backdrop({
+    required this.state,
+    required this.accent,
+    required this.signals,
+    required this.child,
+  });
+
+  final AppState state;
+  final Color accent;
+
+  /// Whether this surface should carry the signal field at all.
+  final bool signals;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!signals) {
+      // Nothing to listen for: the grid and vignette do not depend on traffic,
+      // so an idle or non-dashboard surface should not subscribe at all.
+      return ConsoleBackground(accent: accent, child: child);
+    }
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, child) => ConsoleBackground(
+        accent: accent,
+        animate: true,
+        showSignals: true,
+        downlink: state.downlinkHistory,
+        uplink: state.uplinkHistory,
+        child: child,
+      ),
+      child: child,
     );
   }
 }
@@ -202,11 +258,13 @@ class _TabTransition extends StatelessWidget {
 
 class _DesktopRail extends StatelessWidget {
   const _DesktopRail({
+    required this.state,
     required this.selected,
     required this.connected,
     required this.onSelected,
   });
 
+  final AppState state;
   final AppTab selected;
   final bool connected;
   final ValueChanged<AppTab> onSelected;
@@ -220,6 +278,11 @@ class _DesktopRail extends StatelessWidget {
       width: 240,
       padding: const EdgeInsets.fromLTRB(Gap.lg, 26, Gap.md, Gap.xl),
       decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [palette.bg, Color.lerp(palette.bg, palette.surface, .45)!],
+        ),
         border: Border(right: BorderSide(color: palette.border)),
       ),
       child: Column(
@@ -227,7 +290,7 @@ class _DesktopRail extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: Gap.md, bottom: Gap.xl),
-            child: _Wordmark(connected: connected),
+            child: const _Wordmark(),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
@@ -243,12 +306,31 @@ class _DesktopRail extends StatelessWidget {
               active: tab == selected,
               onTap: () => onSelected(tab),
             ),
-          const Spacer(),
+          Expanded(
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (bounds) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.white, Colors.transparent],
+                stops: [0, .6, 1],
+              ).createShader(bounds),
+              child: ListenableBuilder(
+                listenable: state,
+                builder: (context, _) => SignalArtwork(
+                  opacity: .65,
+                  animate: connected && state.isConnected,
+                  downlink: state.downlinkHistory,
+                  uplink: state.uplinkHistory,
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(left: Gap.md),
             child: Text(
               'v$appVersion',
-              style: TextStyle(color: palette.faint, fontSize: 11),
+              style: monoStyle(color: palette.faint, size: 10),
             ),
           ),
         ],
@@ -257,40 +339,18 @@ class _DesktopRail extends StatelessWidget {
   }
 }
 
-/// Sidebar wordmark: the mark lights up while the tunnel is up.
+/// The launcher and sidebar share one recognisable mark.
 class _Wordmark extends StatelessWidget {
-  const _Wordmark({required this.connected});
-
-  final bool connected;
+  const _Wordmark();
 
   @override
   Widget build(BuildContext context) {
     final l10n = L10n.of(context);
     final palette = context.palette;
-    final lit = connected ? palette.mint : palette.violet;
 
     return Row(
       children: [
-        AnimatedContainer(
-          duration: Motion.normal,
-          curve: Motion.curve,
-          width: 30,
-          height: 30,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: Color.alphaBlend(lit.withValues(alpha: .13), palette.bg),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            border: Border.all(color: lit.withValues(alpha: .32)),
-            boxShadow: connected
-                ? glow(
-                    lit,
-                    intensity:
-                        0.5 * glowIntensity(Theme.of(context).brightness),
-                  )
-                : null,
-          ),
-          child: Icon(Icons.blur_on_rounded, color: lit, size: 18),
-        ),
+        const BrandMark(size: 44),
         const SizedBox(width: Gap.md),
         Expanded(
           child: Column(
@@ -303,21 +363,21 @@ class _Wordmark extends StatelessWidget {
                 style: const TextStyle(
                   fontFamily: AppFonts.display,
                   fontFamilyFallback: AppFonts.cjkFallback,
-                  fontSize: 19,
+                  fontSize: 24,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.4,
                 ),
               ),
               const SizedBox(height: 1),
               Text(
-                l10n.railOverview.toUpperCase(),
+                l10n.appTagline,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: palette.faint,
                   fontSize: 9,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 1.4,
+                  letterSpacing: 1.1,
                 ),
               ),
             ],
@@ -363,6 +423,15 @@ class _RailItem extends StatelessWidget {
             ),
             child: Row(
               children: [
+                Container(
+                  width: 2,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: active ? palette.violetSoft : Colors.transparent,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+                const SizedBox(width: 10),
                 Icon(
                   active ? tab.selectedIcon : tab.icon,
                   size: 19,

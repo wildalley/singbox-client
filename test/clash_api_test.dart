@@ -328,6 +328,78 @@ void main() {
     });
   });
 
+  group('groupDelay', () {
+    // The endpoint a comment in the Linux runtime claimed sing-box does not
+    // serve, while the Windows runtime called it. Verified against a running
+    // 1.14.0: `GET /group/proxy/delay` answers 200 with `{"auto":444,
+    // "direct":444}`. The shapes asserted below are that engine's, not guesses.
+
+    test('tests the whole group in one request', () async {
+      serve('/group/proxy/delay', {'Tokyo': 142, 'Osaka': 88});
+
+      final delays = await client().groupDelay('proxy');
+
+      expect(delays, {'Tokyo': 142, 'Osaka': 88});
+      expect(seen.single.uri.path, '/group/proxy/delay');
+      expect(seen, hasLength(1), reason: 'one request, not one per member');
+    });
+
+    test('sends url and timeout, which the engine requires', () async {
+      // A missing or unparseable timeout is a 400 from the engine — confirmed
+      // against 1.14.0 — so neither may be omitted.
+      serve('/group/proxy/delay', const {});
+
+      await client().groupDelay('proxy', timeout: const Duration(seconds: 6));
+
+      expect(seen.single.uri.queryParameters['timeout'], '6000');
+      expect(seen.single.uri.queryParameters['url'], ClashApiClient.testUrl);
+    });
+
+    test('omits a member that did not answer rather than reporting 0', () async {
+      // The engine leaves an unreachable member out of the map entirely. Callers
+      // merge this over their previous readings, so a 0 here would blank a
+      // latency that was measured a moment ago.
+      serve('/group/proxy/delay', {'Tokyo': 142, 'Osaka': 0});
+
+      expect(await client().groupDelay('proxy'), {'Tokyo': 142});
+    });
+
+    test('null when the tag is not a group', () async {
+      // 404 from the engine. Distinct from an empty map: the test never ran, so
+      // the caller should fall back rather than mark everything unreachable.
+      expect(await client().groupDelay('direct'), isNull);
+    });
+
+    test('null on a gateway timeout, which answers with a message', () async {
+      // A 504 carries {"message": ...}. Read as an empty result it would report
+      // every member unreachable.
+      serve('/group/proxy/delay', {'message': 'context deadline exceeded'});
+
+      expect(await client().groupDelay('proxy'), isNull);
+    });
+
+    test('an empty map means the test ran and nothing came back', () async {
+      // Not the same as null: this group has no members to test.
+      serve('/group/proxy/delay', const {});
+
+      expect(await client().groupDelay('proxy'), isEmpty);
+    });
+
+    test('encodes a group name that is not URL-safe', () async {
+      serve('/group/JP%20%C2%B7%2001/delay', {'Tokyo': 12});
+
+      expect(await client().groupDelay('JP · 01'), {'Tokyo': 12});
+    });
+
+    test('carries the secret', () async {
+      serve('/group/proxy/delay', const {});
+
+      await client().groupDelay('proxy');
+
+      expect(seen.single.headers['authorization'], 'Bearer s3cret');
+    });
+  });
+
   group('traffic', () {
     /// A connector backed by one controller per path.
     ({

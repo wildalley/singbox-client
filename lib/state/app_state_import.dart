@@ -28,6 +28,7 @@ extension _AppStateImport on AppState {
         trimmed,
         subscriptionId: subscription.id,
         viaLocalProxy: isConnected,
+        localProxyPort: _localProxyPort,
       );
       await _absorb(subscription, result);
     } on Object catch (error) {
@@ -125,6 +126,7 @@ extension _AppStateImport on AppState {
         // directly is only reachable through the config's loopback inbound,
         // because the app itself is excluded from the VPN.
         viaLocalProxy: isConnected,
+        localProxyPort: _localProxyPort,
       );
       // Carry latency and favourites across the refresh.
       final previous = {
@@ -136,6 +138,7 @@ extension _AppStateImport on AppState {
                 final ProxyNode old => node.copyWith(
                     latencyMs: old.latencyMs,
                     favorite: old.favorite,
+                    detourNodeId: old.detourNodeId,
                   ),
                 null => node,
               })
@@ -146,6 +149,7 @@ extension _AppStateImport on AppState {
           if (node.subscriptionId != subscriptionId) node,
         ...merged,
       ];
+      _clearMissingDetours();
       _subscriptions = [..._subscriptions]..[index] = result.subscription;
       await _persistNodesAndSubscriptions();
       if (!silent) {
@@ -186,6 +190,7 @@ extension _AppStateImport on AppState {
       for (final item in _subscriptions)
         if (item.id != subscriptionId) item,
     ];
+    _clearMissingDetours();
     // Auto names no node, so removing a source cannot invalidate it — but with
     // the last node gone there is nothing left to choose between, and the
     // sentinel would outlive the reason it was set. Compared against the raw
@@ -215,6 +220,7 @@ extension _AppStateImport on AppState {
       for (final node in _nodes)
         if (node.id != nodeId) node,
     ];
+    _clearMissingDetours();
     // Same rule as removeSubscription: auto survives losing a node, but not
     // losing the last one.
     if (_selectedNodeId == nodeId ||
@@ -245,13 +251,30 @@ extension _AppStateImport on AppState {
   ///
   /// Persisted, because the alternative is asking the user to fold a long list
   /// away again every time they come back to the tab.
-  Future<void> _toggleSourceCollapsedIntent(String sourceId) =>
-      _enqueue(() => _toggleSourceCollapsed(sourceId));
+  /// Removes links to endpoints that a refresh or deletion no longer left in
+  /// storage. Keeping a dangling id would make the UI claim a chain exists
+  /// while the generated config silently drops it.
+  void _clearMissingDetours() {
+    final ids = {for (final node in _nodes) node.id};
+    _nodes = [
+      for (final node in _nodes)
+        node.detourNodeId == null
+            ? node
+            : !ids.contains(node.detourNodeId) ||
+                    wouldCreateDetourCycle(_nodes, node.id, node.detourNodeId)
+                ? node.copyWith(clearDetour: true)
+                : node,
+    ];
+  }
 
-  Future<void> _toggleSourceCollapsed(String sourceId) async {
+  Future<void> _toggleSourceCollapsedIntent(String sourceId) {
+    if (!_acceptingWork) return Future<void>.value();
+    // Folding is presentation state: reflect each tap immediately even while
+    // a refresh or latency test occupies the queue. Only the disk write waits,
+    // using the latest set so later taps/removals cannot restore a stale fold.
     if (!_collapsedSources.remove(sourceId)) _collapsedSources.add(sourceId);
-    await _storage.writeCollapsedSources(_collapsedSources);
     notifyListeners();
+    return _enqueue(() => _storage.writeCollapsedSources(_collapsedSources));
   }
 
   /// Switches how the nodes page orders rows, and remembers the choice.

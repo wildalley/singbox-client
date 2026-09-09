@@ -294,9 +294,24 @@ of them switch the user's outbound or read their connection list.
 `ConfigBuilder.build` takes that token as a required argument with no default, so
 a caller cannot forget it and quietly render an open listener.
 
+## Node chains and config safety
+
+`ProxyNode.detourNodeId` stores the upstream node by stable app id. The Nodes
+page edits this relationship, `AppState` persists it and reloads a running
+tunnel, and `ConfigBuilder` resolves the ids to the outbound tags sing-box
+expects. A node may point to another node that points to a third node, but
+self-links and cycles are rejected at both the UI and state boundaries.
+
+Node ids are endpoint-derived, so a subscription can contain the same endpoint
+more than once or under multiple names. The UI keeps those aliases visible, but
+the config boundary emits only one outbound for each id. This prevents a stale
+or duplicated subscription from producing sing-box's fatal `duplicate outbound
+tag` error while keeping the user's source list intact.
+
 ## Remaining work
 
-- Per-app proxy UI (the setting and config plumbing exist; there is no picker).
+- Android per-app proxy: the basic exclusion picker is implemented; finer
+  grouping, unavailable-app handling, and batch operations remain.
 - Release signing: `android/app/build.gradle.kts` still signs with debug keys.
 - Additional ABIs — `scripts/build-libbox.sh` builds arm64 only by default.
 - A setting for the exit-IP lookup, which currently always runs on connect.

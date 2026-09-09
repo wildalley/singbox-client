@@ -14,6 +14,7 @@ import '../data/config_builder.dart';
 import '../data/importer.dart';
 import '../data/ip_lookup.dart';
 import '../data/latency_tester.dart';
+import '../data/port_allocator.dart';
 import '../data/rule_set_updater.dart';
 import '../data/rule_sets.dart';
 import '../data/storage.dart';
@@ -24,6 +25,7 @@ import '../models/node.dart';
 import '../models/node_sort.dart';
 import '../models/proxy_state.dart';
 import '../models/subscription.dart';
+import '../platform/config_facts.dart';
 import '../platform/proxy_controller.dart';
 
 part 'app_state_notice.dart';
@@ -42,6 +44,7 @@ class AppState extends ChangeNotifier {
     LatencyTester? latencyTester,
     RuleSetUpdater? ruleSetUpdater,
     IpLookup? ipLookup,
+    PortAllocator? portAllocator,
     String? ruleSetDir,
     Duration? urlTestTimeout,
   })  : _urlTestTimeout = urlTestTimeout ?? _defaultUrlTestTimeout,
@@ -51,7 +54,11 @@ class AppState extends ChangeNotifier {
         _ipLookup = ipLookup ?? IpLookup(),
         _latencyTester = latencyTester ?? const LatencyTester(),
         _ruleSetUpdater = ruleSetUpdater ?? RuleSetUpdater(),
+        _portAllocator = portAllocator ?? freeLoopbackPorts,
         _ruleSetDir = ruleSetDir {
+    // Keep aliases and repeated subscription rows in the UI. The config
+    // builder collapses duplicate endpoint ids at the engine boundary, where
+    // they would otherwise become duplicate outbound tags.
     _nodes = _storage.readNodes();
     _subscriptions = _storage.readSubscriptions();
     _settings = _storage.readSettings();
@@ -113,6 +120,9 @@ class AppState extends ChangeNotifier {
   final LatencyTester _latencyTester;
   final RuleSetUpdater _ruleSetUpdater;
 
+  /// How a start picks its loopback ports — see [PortAllocator].
+  final PortAllocator _portAllocator;
+
   /// Where the bundled `.srs` rule-sets were unpacked, or null if they are not
   /// on disk — see [ConfigBuilder.build].
   final String? _ruleSetDir;
@@ -139,6 +149,19 @@ class AppState extends ChangeNotifier {
   /// Bearer token for the config's Clash API listener. Never surfaced in the UI,
   /// a notice, or a log line.
   late String _clashSecret;
+
+  /// The loopback ports the running config listens on.
+  ///
+  /// Chosen once per start rather than fixed, so a machine where another proxy
+  /// client already holds the preferred pair still connects — see
+  /// `port_allocator.dart`. They hold across a session because a reload has to
+  /// render the same numbers the live core bound: moving the Clash API port
+  /// mid-session would cut the control channel the desktop runtimes poll.
+  ///
+  /// The preferred pair until a start picks otherwise, which is also what the
+  /// config preview shows while disconnected.
+  var _clashApiPort = ConfigBuilder.defaultClashApiPort;
+  var _localProxyPort = ConfigBuilder.defaultLocalProxyPort;
 
   var _proxyState = ProxyState.disconnected;
   var _traffic = ProxyTraffic.zero;
@@ -351,6 +374,8 @@ class AppState extends ChangeNotifier {
   Future<void> toggleSourceCollapsed(String sourceId) =>
       _toggleSourceCollapsedIntent(sourceId);
   Future<void> setNodeSort(NodeSort sort) => _setNodeSortIntent(sort);
+  Future<void> setNodeDetour(String nodeId, String? detourNodeId) =>
+      _setNodeDetourIntent(nodeId, detourNodeId);
 
   Future<void> testLatency() => _testLatencyIntent();
   String previewConfig() => _previewConfig();
@@ -386,6 +411,16 @@ class AppState extends ChangeNotifier {
             NoticeKind.tunUnprivileged,
             detail: EngineProblem.detailOf(message),
           ),
+        EngineProblem.elevationFailed =>
+          const AppNotice.error(NoticeKind.elevationFailed),
+        EngineProblem.configRejected => AppNotice.error(
+            NoticeKind.configRejected,
+            detail: EngineProblem.detailOf(message),
+          ),
+        EngineProblem.apiTimeout =>
+          const AppNotice.error(NoticeKind.engineApiTimeout),
+        EngineProblem.systemProxyUnavailable =>
+          const AppNotice.error(NoticeKind.systemProxyUnavailable),
         null => AppNotice.passthrough(message),
       };
 

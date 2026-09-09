@@ -146,7 +146,10 @@ extension _AppStateRuntime on AppState {
         _exitLookupPending = false;
         final generation = _exitLookupGeneration;
         try {
-          final address = await _ipLookup.fetch(viaLocalProxy: isConnected);
+          final address = await _ipLookup.fetch(
+            viaLocalProxy: isConnected,
+            localProxyPort: _localProxyPort,
+          );
           // A failed lookup clears the reading rather than leaving the last one
           // on screen: a stale address beside a tunnel that has since moved is
           // worse than admitting the check did not answer.
@@ -289,6 +292,7 @@ extension _AppStateRuntime on AppState {
         if (!incomingIds.contains(node.id)) node,
       ...result.nodes,
     ];
+    _clearMissingDetours();
     _subscriptions = [..._subscriptions, resolved];
     _selectedNodeId ??= _nodes.isEmpty ? null : _nodes.first.id;
 

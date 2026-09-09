@@ -57,19 +57,33 @@ class _NodesPageState extends State<NodesPage> {
   void _toggleSource(String sourceId) {
     final contextual = _query.trim().isNotEmpty || _source == sourceId;
     if (contextual) {
-      if (!_contextCollapsedSources.add(sourceId)) {
-        _contextCollapsedSources.remove(sourceId);
-      }
       // This is a temporary reveal caused by the active search/source filter;
       // do not overwrite the user's persisted fold preference just because the
       // filter is on.
-      setState(() {});
-      return;
+      setState(() {
+        if (!_contextCollapsedSources.add(sourceId)) {
+          _contextCollapsedSources.remove(sourceId);
+        }
+      });
     } else {
-      _contextCollapsedSources.remove(sourceId);
+      widget.state.toggleSourceCollapsed(sourceId);
     }
-    setState(() {});
-    widget.state.toggleSourceCollapsed(sourceId);
+  }
+
+  void _setQuery(String query) {
+    if (_query == query) return;
+    setState(() {
+      _query = query;
+      _contextCollapsedSources.clear();
+    });
+  }
+
+  void _setSource(String? source) {
+    if (_source == source) return;
+    setState(() {
+      _source = source;
+      _contextCollapsedSources.clear();
+    });
   }
 
   List<ProxyNode> _visible(String? source) {
@@ -126,10 +140,12 @@ class _NodesPageState extends State<NodesPage> {
     // hidden behind a chevron reads as "no results", not as folded. Picking a
     // source from the row above is the same kind of request, so it unfolds too —
     // in both cases without touching what the user folded.
+    // An explicit close wins over the temporary reveal, including sources
+    // whose persisted preference was already open before the filter changed.
     bool expanded(String sourceId) =>
-        !state.isSourceCollapsed(sourceId) ||
-        ((_query.trim().isNotEmpty || source == sourceId) &&
-            !_contextCollapsedSources.contains(sourceId));
+        _query.trim().isNotEmpty || source == sourceId
+            ? !_contextCollapsedSources.contains(sourceId)
+            : !state.isSourceCollapsed(sourceId);
 
     return PageFrame(
       title: l10n.nodesTitle,
@@ -196,7 +212,7 @@ class _NodesPageState extends State<NodesPage> {
         else ...[
           TextField(
             controller: _searchController,
-            onChanged: (value) => setState(() => _query = value),
+            onChanged: _setQuery,
             decoration: InputDecoration(
               hintText: l10n.nodesSearch,
               prefixIcon: Icon(Icons.search, size: 20, color: palette.faint),
@@ -206,7 +222,7 @@ class _NodesPageState extends State<NodesPage> {
                       icon: const Icon(Icons.close, size: 18),
                       onPressed: () {
                         _searchController.clear();
-                        setState(() => _query = '');
+                        _setQuery('');
                       },
                     ),
             ),
@@ -233,7 +249,7 @@ class _NodesPageState extends State<NodesPage> {
                   _ChoiceChipCell(
                     label: l10n.nodesSourceAll,
                     selected: source == null,
-                    onSelected: () => setState(() => _source = null),
+                    onSelected: () => _setSource(null),
                   ),
                   for (final id in sources)
                     _ChoiceChipCell(
@@ -243,7 +259,7 @@ class _NodesPageState extends State<NodesPage> {
                               .firstWhere((item) => item.id == id)
                               .name,
                       selected: source == id,
-                      onSelected: () => setState(() => _source = id),
+                      onSelected: () => _setSource(id),
                     ),
                 ],
               ),
@@ -284,13 +300,7 @@ class _NodesPageState extends State<NodesPage> {
                 ),
               ),
             ),
-            if (expanded(_manualSource))
-              for (final node in grouped[null]!)
-                // Keyed by node, not left to match on position. A reorder has to
-                // move the elements — and with them the slide state that knows
-                // where each row came from — rather than sliding new data
-                // through states that stayed put.
-                _NodeRow(key: ValueKey(node.id), state: state, node: node),
+            if (expanded(_manualSource)) ..._nodeRows(state, grouped[null]!),
             const SizedBox(height: 22),
           ],
           if (nodes.isEmpty)
@@ -460,8 +470,7 @@ class _SubscriptionSection extends StatelessWidget {
         ),
         if (!collapsed) ...[
           const SizedBox(height: Gap.md),
-          for (final node in nodes)
-            _NodeRow(key: ValueKey(node.id), state: state, node: node),
+          ..._nodeRows(state, nodes),
         ],
         const SizedBox(height: 22),
       ],
@@ -554,7 +563,7 @@ class _AutoRow extends StatelessWidget {
       child: Panel(
         onTap: state.selectAuto,
         selected: selected,
-        accent: palette.violet,
+        accent: selected ? palette.violet : null,
         padding: const EdgeInsets.all(14),
         child: Row(
           children: [
@@ -607,6 +616,26 @@ class _AutoRow extends StatelessWidget {
   }
 }
 
+/// Endpoint IDs are stable across refreshes, but a source can publish the same
+/// endpoint under multiple names, or repeat an entry verbatim. Each row needs
+/// its own key: duplicate keys can orphan painted rows when a section folds.
+/// Include the name to keep aliases stable when sorting/filtering, then count
+/// identical copies so even repeated names remain distinct. The endpoint ID
+/// used for proxy selection and persisted data stays untouched.
+Iterable<Widget> _nodeRows(AppState state, List<ProxyNode> nodes) sync* {
+  final occurrences = <(String?, String, String), int>{};
+  for (final node in nodes) {
+    final identity = (node.subscriptionId, node.id, node.name);
+    final occurrence =
+        occurrences.update(identity, (n) => n + 1, ifAbsent: () => 0);
+    yield _NodeRow(
+      key: ValueKey((identity, occurrence)),
+      state: state,
+      node: node,
+    );
+  }
+}
+
 class _NodeRow extends StatelessWidget {
   const _NodeRow({super.key, required this.state, required this.node});
 
@@ -629,7 +658,7 @@ class _NodeRow extends StatelessWidget {
         child: Panel(
           onTap: () => state.selectNode(node),
           selected: selected,
-          accent: palette.violet,
+          accent: selected ? palette.violet : null,
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
@@ -731,6 +760,20 @@ class _NodeRow extends StatelessWidget {
                   color: node.favorite ? palette.amber : palette.faint,
                 ),
               ),
+              IconButton(
+                tooltip: l10n.nodesChain,
+                onPressed: () => _showChainSheet(context, state, node),
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  node.detourNodeId == null
+                      ? Icons.link_outlined
+                      : Icons.link_rounded,
+                  size: 19,
+                  color: node.detourNodeId == null
+                      ? palette.faint
+                      : palette.violetSoft,
+                ),
+              ),
               // Eases the width open instead of reserving a slot on every row:
               // at rest this is exactly the old layout — the mark on the selected
               // row, nothing on the others — and only the change is animated.
@@ -748,6 +791,227 @@ class _NodeRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+Future<void> _showChainSheet(
+  BuildContext context,
+  AppState state,
+  ProxyNode node,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: .72,
+      minChildSize: .45,
+      maxChildSize: .92,
+      builder: (context, scrollController) => _ChainSheet(
+        state: state,
+        node: node,
+        scrollController: scrollController,
+      ),
+    ),
+  );
+}
+
+class _ChainSheet extends StatefulWidget {
+  const _ChainSheet({
+    required this.state,
+    required this.node,
+    required this.scrollController,
+  });
+
+  final AppState state;
+  final ProxyNode node;
+  final ScrollController scrollController;
+
+  @override
+  State<_ChainSheet> createState() => _ChainSheetState();
+}
+
+class _ChainSheetState extends State<_ChainSheet> {
+  late String? _detourNodeId = widget.node.detourNodeId;
+  var _saving = false;
+
+  List<ProxyNode> get _candidates => [
+        for (final candidate in widget.state.nodes)
+          if (candidate.id != widget.node.id &&
+              !wouldCreateDetourCycle(
+                widget.state.nodes,
+                widget.node.id,
+                candidate.id,
+              ))
+            candidate,
+      ];
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    await widget.state.setNodeDetour(widget.node.id, _detourNodeId);
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final palette = context.palette;
+    final candidates = _candidates;
+
+    return SafeArea(
+      top: false,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.md, Gap.sm, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.nodesChain,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: Gap.xs),
+                      Text(
+                        l10n.nodesChainBody,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: l10n.actionCancel,
+                  onPressed: _saving ? null : () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.lg, Gap.xl, Gap.sm),
+            child: Panel(
+              selected: _detourNodeId == null,
+              accent: _detourNodeId == null ? palette.violet : null,
+              onTap:
+                  _saving ? null : () => setState(() => _detourNodeId = null),
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(Icons.link_off_rounded, color: palette.muted),
+                  const SizedBox(width: Gap.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.nodesChainDirect,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          l10n.nodesChainDirectBody,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_detourNodeId == null)
+                    Icon(Icons.check_rounded, color: palette.violetSoft),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: candidates.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(Gap.xl),
+                      child: Text(
+                        l10n.nodesChainNoCandidates,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    controller: widget.scrollController,
+                    padding: const EdgeInsets.fromLTRB(
+                        Gap.xl, Gap.sm, Gap.xl, Gap.xl),
+                    itemCount: candidates.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: Gap.sm),
+                    itemBuilder: (context, index) {
+                      final candidate = candidates[index];
+                      final selected = _detourNodeId == candidate.id;
+                      return Panel(
+                        selected: selected,
+                        accent: selected ? palette.violet : null,
+                        onTap: _saving
+                            ? null
+                            : () => setState(
+                                  () => _detourNodeId = candidate.id,
+                                ),
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Icon(Icons.dns_outlined, color: palette.violetSoft),
+                            const SizedBox(width: Gap.md),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    candidate.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '${candidate.protocol.label} · ${candidate.server}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: monoStyle(
+                                      size: 10,
+                                      color: palette.faint,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (selected)
+                              Icon(Icons.check_rounded,
+                                  color: palette.violetSoft),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.sm, Gap.xl, Gap.md),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(l10n.actionSave),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

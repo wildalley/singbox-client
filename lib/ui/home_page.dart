@@ -15,6 +15,7 @@ import '../models/node.dart';
 import '../models/proxy_state.dart';
 import '../state/app_state.dart';
 import 'clock.dart';
+import 'brand.dart';
 import 'components.dart';
 import 'notice_text.dart';
 import 'theme.dart';
@@ -284,6 +285,11 @@ class _ConnectButton extends StatelessWidget {
           // read as a disabled control rather than the way out of the tunnel.
           backgroundColor:
               connected ? tintFill(palette.danger) : palette.violet,
+          // A raised shadow shows through this translucent face on Linux,
+          // turning the light-theme hover state grey. Keep it flat; the ink
+          // overlay and border still provide hover/focus feedback.
+          elevation: connected ? 0 : null,
+          shadowColor: connected ? Colors.transparent : null,
           foregroundColor: connected ? palette.danger : Colors.white,
           side: connected
               ? BorderSide(color: palette.danger.withValues(alpha: .38))

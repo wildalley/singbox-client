@@ -16,7 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:singbox_client/data/storage.dart';
 import 'package:singbox_client/state/app_state.dart';
 
-import 'widget_test.dart' show FakeProxyController, node;
+import 'widget_test.dart' show FakeProxyController, fakePortAllocator, node;
 
 /// The token in the config [state] hands to the runtime.
 ///
@@ -39,7 +39,11 @@ Future<({AppState state, FakeProxyController controller})> _build(
 ) async {
   await storage.writeNodes([node('a', 'Tokyo')]);
   final controller = FakeProxyController();
-  final state = AppState(storage: storage, controller: controller);
+  final state = AppState(
+    storage: storage,
+    controller: controller,
+    portAllocator: fakePortAllocator,
+  );
   addTearDown(state.dispose);
   return (state: state, controller: controller);
 }

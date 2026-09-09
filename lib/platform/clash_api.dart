@@ -174,6 +174,55 @@ class ClashApiClient {
     return value is num ? value.toInt() : 0;
   }
 
+  /// URL-tests every member of [group] in one request, in milliseconds.
+  ///
+  /// `/group/{name}/delay` is a Clash.Meta endpoint, and sing-box does serve it
+  /// — verified against a running 1.14.0, and present in
+  /// `experimental/clashapi/api_meta_group.go` since 1.12, which is this app's
+  /// minimum. A comment here used to claim the opposite and the Linux runtime
+  /// tested members one at a time because of it; Windows called this endpoint all
+  /// along. One of the two had to be wrong, and it was the comment.
+  ///
+  /// The engine omits members it could not reach rather than reporting them as 0,
+  /// so a missing key means "no result" — the same thing [delay] returns 0 for.
+  /// Callers merging this into a [ProxyGroup] should keep their previous reading
+  /// for an absent member instead of overwriting it with a zero.
+  ///
+  /// Returns null when the request itself did not succeed: [group] is not a group
+  /// (404), the engine could not finish inside [timeout] (504), or nothing
+  /// answered. That is distinct from an empty map, which means the test ran and
+  /// no member came back.
+  ///
+  /// Two engine-side quirks worth knowing. A `urltest` group ignores [url] and
+  /// uses the one from its own config, since the group performs its own test. And
+  /// an `http://` [url] is discarded by the engine — it only probes HTTPS — so
+  /// the default is left as [testUrl].
+  Future<Map<String, int>?> groupDelay(
+    String group, {
+    Duration timeout = const Duration(seconds: 10),
+    String url = testUrl,
+  }) async {
+    final body = await _get(
+      '/group/${Uri.encodeComponent(group)}/delay',
+      // Not optional: the engine parses this parameter and answers 400 when it
+      // is missing or unparseable.
+      query: {'url': url, 'timeout': '${timeout.inMilliseconds}'},
+      // The whole group is tested behind this one request, so the HTTP call has
+      // to outlive the test the engine is running. The default request timeout is
+      // shorter than the test it would be waiting on.
+      timeout: timeout + const Duration(seconds: 5),
+    );
+    if (body == null) return null;
+    // A 504 carries `{"message": ...}` rather than delays; treating that as an
+    // empty result would report every member unreachable.
+    if (body['message'] != null) return null;
+    return {
+      for (final entry in body.entries)
+        if (entry.value case final num delay when delay > 0)
+          entry.key: delay.toInt(),
+    };
+  }
+
   /// Merged counters, as one [ProxyTraffic] per update.
   ///
   /// The API splits what the UI shows across three endpoints: `/traffic` has

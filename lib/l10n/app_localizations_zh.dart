@@ -15,6 +15,9 @@ class L10nZh extends L10n {
   String get appShortName => 'SingBox';
 
   @override
+  String get appTagline => '代理与流量管理';
+
+  @override
   String get actionCancel => '取消';
 
   @override
@@ -287,6 +290,21 @@ class L10nZh extends L10n {
   String get nodesUnreachable => '无法连接';
 
   @override
+  String get nodesChain => '链式代理';
+
+  @override
+  String get nodesChainBody => '选择一个上游节点，当前节点将经由它建立连接。';
+
+  @override
+  String get nodesChainDirect => '直接连接';
+
+  @override
+  String get nodesChainDirectBody => '不使用上游节点';
+
+  @override
+  String get nodesChainNoCandidates => '没有可用的上游节点';
+
+  @override
   String get rulesTitle => '规则';
 
   @override
@@ -532,6 +550,39 @@ class L10nZh extends L10n {
   String get settingsSystemProxyBody => '开放本地代理；Windows 同时启用系统代理';
 
   @override
+  String get settingsPerAppProxy => '按应用代理';
+
+  @override
+  String get settingsPerAppProxyBody => '选择绕过 VPN 的应用';
+
+  @override
+  String get settingsPerAppProxyApps => '绕过应用';
+
+  @override
+  String settingsPerAppProxyAppsBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已选择 $count 个应用绕过 VPN',
+      one: '已选择 1 个应用绕过 VPN',
+      zero: '尚未选择应用',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get settingsPerAppProxySearch => '搜索应用';
+
+  @override
+  String get settingsPerAppProxyNoApps => '没有找到可选择的应用';
+
+  @override
+  String get settingsPerAppProxyNoMatches => '没有匹配的应用';
+
+  @override
+  String get settingsPerAppProxyLoadFailed => '无法读取应用列表';
+
+  @override
   String get settingsStrictRoute => '严格路由';
 
   @override
@@ -757,6 +808,29 @@ class L10nZh extends L10n {
   String noticeTunUnprivileged(String binary) {
     return 'TUN 未获授权。可重新连接再次弹出授权框,或执行 sudo setcap cap_net_admin,cap_net_raw+ep $binary,也可改用系统代理模式。';
   }
+
+  @override
+  String get noticeTunNeedsAdmin =>
+      'TUN 模式需要管理员权限。请重新连接并在弹出的 UAC 提示中允许,也可改用系统代理模式。';
+
+  @override
+  String get noticeElevationFailed => '无法以管理员权限启动。请重试,或改用系统代理模式。';
+
+  @override
+  String noticeConfigRejected(String code) {
+    return '代理内核拒绝了生成的配置(退出码 $code)。请检查节点设置和自定义规则。';
+  }
+
+  @override
+  String noticeConfigInvalid(String problem) {
+    return '生成的配置不可用($problem)。请检查节点设置和自定义规则。';
+  }
+
+  @override
+  String get noticeEngineApiTimeout => '代理内核已启动,但始终没有响应控制 API。可能有其他程序占用了该端口。';
+
+  @override
+  String get noticeSystemProxyUnavailable => '无法修改系统代理设置,流量不会被代理。可以改用 TUN 模式。';
 
   @override
   String platformUnsupported(String platform) {

@@ -81,13 +81,13 @@ class AppPalette extends ThemeExtension<AppPalette> {
   final Color danger;
 
   static const dark = AppPalette(
-    bg: Color(0xFF000E13),
-    surface: Color(0xFF141B21),
-    surface2: Color(0xFF1F2430),
-    surface3: Color(0xFF2A3140),
+    bg: Color(0xFF080C12),
+    surface: Color(0xFF11171F),
+    surface2: Color(0xFF1B222E),
+    surface3: Color(0xFF252D3B),
     border: Color(0x1AFFFFFF),
     borderStrong: Color(0x2EFFFFFF),
-    text: Color(0xFFE2E6F1),
+    text: Color(0xFFF0F2F8),
     muted: Color(0xFF8A93A6),
     // Lifted from 6E7889, which was 3.90:1 on surface — fine for decoration,
     // short of the bar for the 10px text this actually draws. Taken past 4.5:1
@@ -228,7 +228,7 @@ class Gap {
   static const xs = 4.0;
   static const sm = 8.0;
   static const md = 12.0;
-  static const lg = 16.0;
+  static const lg = 14.0;
   static const xl = 24.0;
   static const xxl = 32.0;
 

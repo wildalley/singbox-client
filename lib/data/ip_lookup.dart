@@ -85,8 +85,18 @@ class IpLookup {
   ///
   /// Never throws: an unreachable echo service says nothing about the tunnel
   /// that the caller could act on, and the UI shows "unknown" either way.
-  Future<ExitAddress?> fetch({required bool viaLocalProxy}) async {
-    routeHttp(_httpClient, viaLocalProxy: viaLocalProxy);
+  ///
+  /// [localProxyPort] is the running config's loopback inbound; null uses the
+  /// preferred number, which only matters on the direct path.
+  Future<ExitAddress?> fetch({
+    required bool viaLocalProxy,
+    int? localProxyPort,
+  }) async {
+    routeHttp(
+      _httpClient,
+      viaLocalProxy: viaLocalProxy,
+      localProxyPort: localProxyPort,
+    );
     for (final service in services) {
       try {
         final address = await _fetchOne(service);

@@ -42,10 +42,10 @@ enum ProxyCoverage {
 ///
 /// Most of what [ProxyState.message] carries is the engine's own words: not
 /// translatable, and shown verbatim because rephrasing an engine error loses the
-/// part that identifies it. These three are different. They are conditions the
-/// app worked out around the engine — no binary, too old a binary, a tun the
-/// kernel would not give us — and each has a specific fix worth spelling out in
-/// the user's language.
+/// part that identifies it. These are different. They are conditions the app
+/// worked out around the engine — no binary, too old a binary, a tun the kernel
+/// would not give us, an elevation the user dismissed — and each has a specific
+/// fix worth spelling out in the user's language.
 ///
 /// So they travel as a marker in the same `message` field instead of an English
 /// sentence built in the runtime layer, and the notice layer turns them into
@@ -58,8 +58,31 @@ enum EngineProblem {
   /// Found, but older than the schema the rendered config uses.
   tooOld,
 
-  /// A tun start failed for want of `CAP_NET_ADMIN`.
-  unprivileged;
+  /// A tun start failed for want of `CAP_NET_ADMIN` (Linux) or of the
+  /// administrator rights a Wintun adapter needs (Windows).
+  ///
+  /// [detailOf] carries the binary to grant the capability to on Linux, and
+  /// nothing on Windows, where the fix is the UAC prompt rather than a path.
+  unprivileged,
+
+  /// The elevation handoff itself broke: UAC was accepted, or could not even be
+  /// asked, but no elevated instance took over. Distinct from [unprivileged],
+  /// where the user simply said no and re-connecting is the whole fix.
+  elevationFailed,
+
+  /// The rendered config was rejected before anything started listening.
+  ///
+  /// [detailOf] carries the engine's exit code, never its output: a malformed
+  /// custom node puts credentials into that diagnostic.
+  configRejected,
+
+  /// The core started but never answered on its control API.
+  apiTimeout,
+
+  /// The host's proxy settings could not be taken over, so a connected engine
+  /// would carry no traffic. See [ProxyCoverage.systemProxyUnavailable] for the
+  /// same condition when the tunnel did come up.
+  systemProxyUnavailable;
 
   static const _prefix = 'engine-problem:';
 

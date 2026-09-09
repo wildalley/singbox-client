@@ -63,7 +63,15 @@ class _PanelState extends State<Panel> {
             : widget.accent?.withValues(alpha: lit ? .45 : .28) ??
                 palette.border;
     final decoration = BoxDecoration(
-      color: fill,
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color.lerp(fill, palette.surface2,
+              Theme.of(context).brightness == Brightness.dark ? .20 : .12)!,
+          fill,
+        ],
+      ),
       borderRadius: BorderRadius.circular(AppRadius.lg),
       border: Border.all(color: borderColor),
       boxShadow: [
@@ -81,6 +89,12 @@ class _PanelState extends State<Panel> {
             ),
             blurRadius: _pressed ? 8 : 14,
             offset: Offset(0, _pressed ? 2 : 5),
+          ),
+        if (!elevated && Theme.of(context).brightness == Brightness.light)
+          BoxShadow(
+            color: palette.text.withValues(alpha: .025),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
           ),
       ],
     );
@@ -109,10 +123,10 @@ class _PanelState extends State<Panel> {
         borderRadius: BorderRadius.circular(AppRadius.lg),
         child: AnimatedScale(
           scale: _pressed ? .992 : 1,
-          duration: Motion.fast,
+          duration: motionOf(context, Motion.fast),
           curve: Motion.curve,
           child: AnimatedContainer(
-            duration: Motion.fast,
+            duration: motionOf(context, Motion.fast),
             curve: Motion.curve,
             width: double.infinity,
             padding: widget.padding,
@@ -233,6 +247,7 @@ class PageFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const padding = EdgeInsets.fromLTRB(Gap.xl, 22, Gap.xl, 28);
+    final wide = MediaQuery.sizeOf(context).width >= 1100;
 
     final header = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,7 +261,10 @@ class PageFrame extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.headlineLarge,
+                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                          fontSize: wide ? 36 : 28,
+                          letterSpacing: wide ? -1.2 : -.84,
+                        ),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: Gap.xs),
@@ -261,7 +279,18 @@ class PageFrame extends StatelessWidget {
             if (trailing != null) trailing!,
           ],
         ),
-        const SizedBox(height: 26),
+        const SizedBox(height: 20),
+        Container(
+          height: 1,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [
+              context.palette.violet.withValues(alpha: .45),
+              context.palette.border,
+              context.palette.border.withValues(alpha: 0),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 22),
       ],
     );
 

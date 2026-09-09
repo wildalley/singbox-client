@@ -55,13 +55,20 @@ class RuleSetUpdater {
   /// the caller can report it; the tags that did succeed keep their new bytes.
   /// The install record is only stamped when all of them landed, so a partial
   /// run is retried rather than remembered as current.
+  /// [localProxyPort] is the loopback inbound of the running config, which the
+  /// caller knows and this does not — a start can land off the preferred number.
   Future<RuleSetInstall> update(
     Directory dir, {
     bool viaLocalProxy = false,
+    int? localProxyPort,
   }) async {
     // Set per call: whether the tunnel is up decides the path, and the same
     // updater outlives several connects.
-    routeHttp(_httpClient, viaLocalProxy: viaLocalProxy);
+    routeHttp(
+      _httpClient,
+      viaLocalProxy: viaLocalProxy,
+      localProxyPort: localProxyPort,
+    );
     await dir.create(recursive: true);
 
     final failed = <String>[];

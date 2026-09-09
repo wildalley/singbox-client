@@ -1,11 +1,10 @@
-/// The launcher icon and the launch splash live in XML and PNG, so neither the
-/// analyzer nor the widget tests can see them drift away from the palette they
-/// were drawn from — or, for the icon, out of the safe circle every launcher
-/// mask crops to. These read the shipped resources rather than restating them.
+/// Native launchers and splash resources live outside Flutter. Verify their
+/// asset references, dimensions, safe monochrome geometry, and splash palette
+/// against the actual shipped XML and PNG resources.
 library;
 
 import 'dart:io';
-import 'dart:math' show max;
+import 'dart:math' show sqrt;
 import 'dart:typed_data' show ByteData;
 
 import 'package:flutter/material.dart';
@@ -32,10 +31,10 @@ double _ratio(Color fg, Color bg) {
 
 void main() {
   group('launcher icon', () {
-    test('is drawn from the palette, not from new colours', () {
+    test('uses the shared ribbon artwork on the app background', () {
       final palette = AppPalette.dark;
       final background = _colors(_xml('drawable/ic_launcher_background.xml'));
-      final foreground = _colors(_xml('drawable/ic_launcher_foreground.xml'));
+      final foreground = _xml('drawable/ic_launcher_foreground.xml');
 
       expect(background.first.toARGB32(), palette.bg.toARGB32(),
           reason: 'the plate is the app background');
@@ -43,55 +42,52 @@ void main() {
       for (final stop in background.skip(1)) {
         expect(stop.withValues(alpha: 1).toARGB32(), palette.violet.toARGB32());
       }
-      expect(foreground[0].toARGB32(), palette.violetSoft.toARGB32(),
-          reason: 'the dial ring: violet is fill-only, foregrounds take '
-              'violetSoft');
-      for (final live in foreground.skip(1)) {
-        expect(live.toARGB32(), palette.mint.toARGB32(),
-            reason: 'the filled segment and the node are the live colour');
-      }
+      expect(foreground, contains('@drawable/ic_launcher_art'));
+      expect(foreground, contains('android:inset="12dp"'));
+      final artwork = File('$_res/drawable-nodpi/ic_launcher_art.png');
+      final header = ByteData.sublistView(artwork.readAsBytesSync(), 16, 24);
+      expect(header.getUint32(0), 512);
+      expect(header.getUint32(4), 512);
+      expect(File('docs/design/icon/app-icon-master.png').existsSync(), isTrue);
     });
 
-    test('the mark clears 3:1 against its own glow', () {
+    test('the monochrome mark clears 3:1 against the background glow', () {
       // The glow sits on the background layer, so it paints *behind* the mark
       // rather than through it — but it still lifts what the mark is measured
       // against, and it is brightest dead centre, under the node. That blend is
       // the worst case, not the bare background.
       final glow = _colors(_xml('drawable/ic_launcher_background.xml'))[1];
       final worst = Color.alphaBlend(glow, AppPalette.dark.bg);
-      for (final color in _colors(_xml('drawable/ic_launcher_foreground.xml'))) {
+      for (final color
+          in _colors(_xml('drawable/ic_launcher_monochrome.xml'))) {
         expect(_ratio(color, worst), greaterThanOrEqualTo(3),
             reason: 'icon-sized shapes need 3:1');
       }
     });
 
-    test('the mark stays inside the adaptive safe circle', () {
+    test('the monochrome mark stays inside the adaptive safe circle', () {
       // A launcher may mask the 108dp canvas down to a 66dp circle, and only
       // that circle is guaranteed to survive. Anything drawn past r=33 can be
       // cut off on some devices and not others.
-      for (final file in ['ic_launcher_foreground', 'ic_launcher_monochrome']) {
-        final xml = _xml('drawable/$file.xml');
-        expect(RegExp(r'viewport(Width|Height)="108"').allMatches(xml).length, 2,
-            reason: '$file must use the 108dp adaptive canvas');
-
-        // Radii come from the arc commands; a stroke straddles its path, so
-        // half of it reaches further out than the radius does.
-        final radii = RegExp(r'[Aa]([\d.]+),([\d.]+)')
-            .allMatches(xml)
-            .map((match) => double.parse(match.group(1)!));
-        final strokes = RegExp(r'strokeWidth="([\d.]+)"')
-            .allMatches(xml)
-            .map((match) => double.parse(match.group(1)!));
-        final widest = strokes.isEmpty ? 0.0 : strokes.reduce(max);
-        for (final radius in radii) {
-          expect(radius + widest / 2, lessThanOrEqualTo(33),
-              reason: '$file reaches outside the safe circle');
-        }
+      final xml = _xml('drawable/ic_launcher_monochrome.xml');
+      expect(RegExp(r'viewport(Width|Height)="108"').allMatches(xml).length, 2);
+      final stroke = double.parse(
+        RegExp(r'strokeWidth="([\d.]+)"').firstMatch(xml)!.group(1)!,
+      );
+      final path = RegExp(r'pathData="([^"]+)"').firstMatch(xml)!.group(1)!;
+      // Cubic curves lie within their control-point convex hull. Check all
+      // control/end points, including half the stroke, not just the endpoints.
+      final points = RegExp(r'([\d.]+),([\d.]+)').allMatches(path).toList();
+      expect(points, isNotEmpty);
+      for (final point in points) {
+        final x = double.parse(point.group(1)!) - 54;
+        final y = double.parse(point.group(2)!) - 54;
+        expect(sqrt(x * x + y * y) + stroke / 2, lessThanOrEqualTo(33));
       }
     });
 
     test('the pre-26 fallback ships at every density', () {
-      // minSdk is 24, so Android 7.x still takes the PNGs; the adaptive vector
+      // minSdk is 24, so Android 7.x still takes the PNGs; adaptive artwork
       // only answers from 26 up. Sizes are Android's launcher-icon ladder.
       const expected = {
         'mdpi': 48,
@@ -121,11 +117,11 @@ void main() {
       // the round one, and it gets a PNG, so the two sets must not be copies of
       // each other — a square plate inside a circular hole is the bug this
       // guards.
-      final manifest = File('android/app/src/main/AndroidManifest.xml')
-          .readAsStringSync();
+      final manifest =
+          File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
       expect(manifest, contains('android:icon="@mipmap/ic_launcher"'));
-      expect(manifest,
-          contains('android:roundIcon="@mipmap/ic_launcher_round"'));
+      expect(
+          manifest, contains('android:roundIcon="@mipmap/ic_launcher_round"'));
       for (final name in ['ic_launcher', 'ic_launcher_round']) {
         final xml = _xml('mipmap-anydpi-v26/$name.xml');
         for (final layer in ['background', 'foreground', 'monochrome']) {
@@ -145,7 +141,8 @@ void main() {
   });
 
   group('launch splash', () {
-    test('is the app background in both ui modes, never the template white', () {
+    test('is the app background in both ui modes, never the template white',
+        () {
       // The window the OS paints before Flutter's first frame. It shipped as
       // the template's white, which flashed in front of a near-black app.
       final day = _colors(_xml('values/colors.xml'));

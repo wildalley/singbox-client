@@ -1,16 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Status bar icon for the tunnel notification. Must be a single-colour
-     silhouette: Android tints it and ignores anything else. -->
+<!-- Android tints notification icons; use the small-size S silhouette. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24"
-    android:tint="#FFFFFF">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,2L4,5v6c0,5.05 3.41,9.76 8,11 4.59,-1.24 8,-5.95 8,-11V5L12,2zM12,4.14l6,2.25V11c0,4.02 -2.62,7.86 -6,8.94 -3.38,-1.08 -6,-4.92 -6,-8.94V6.39l6,-2.25z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M11,10h2v6h-2zM11,7h2v2h-2z" />
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:pivotX="54" android:pivotY="54"
+        android:scaleX="1.5" android:scaleY="1.5">
+        <path
+            android:pathData="M70,36 C64,31 43,29 37,37 C30,50 71,51 71,64 C71,75 43,77 36,70"
+            android:strokeColor="#FFFFFFFF" android:strokeWidth="10"
+            android:strokeLineCap="round" />
+    </group>
 </vector>

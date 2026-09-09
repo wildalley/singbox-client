@@ -41,6 +41,7 @@ extension _AppStateRules on AppState {
       _ruleSetInstall = await _ruleSetUpdater.update(
         directory,
         viaLocalProxy: isConnected,
+        localProxyPort: _localProxyPort,
       );
       if (!silent) _notice = const AppNotice(NoticeKind.ruleSetsUpdated);
     } on Object {

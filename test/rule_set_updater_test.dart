@@ -180,7 +180,7 @@ void main() {
     // the only way in-app HTTP can leave through the selected node.
     expect(
       localProxyDirective(viaLocalProxy: true),
-      'PROXY 127.0.0.1:${ConfigBuilder.localProxyPort}',
+      'PROXY 127.0.0.1:${ConfigBuilder.defaultLocalProxyPort}',
     );
     expect(localProxyDirective(viaLocalProxy: false), 'DIRECT');
   });

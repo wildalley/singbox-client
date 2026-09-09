@@ -35,9 +35,17 @@ String noticeText(L10n l10n, AppNotice notice) {
     NoticeKind.ruleSetsUnavailable => l10n.noticeRuleSetsUnavailable,
     NoticeKind.engineMissing => l10n.noticeEngineMissing,
     NoticeKind.engineTooOld => l10n.noticeEngineTooOld(detail),
-    NoticeKind.tunUnprivileged => l10n.noticeTunUnprivileged(
-        detail.isEmpty ? 'sing-box' : detail,
-      ),
+    // Two different fixes behind one condition. Where the runtime named a
+    // binary, the fix is a one-line `setcap` on it; where it named nothing, the
+    // platform grants the right through a prompt and a path would be noise.
+    NoticeKind.tunUnprivileged => detail.isEmpty
+        ? l10n.noticeTunNeedsAdmin
+        : l10n.noticeTunUnprivileged(detail),
+    NoticeKind.elevationFailed => l10n.noticeElevationFailed,
+    NoticeKind.configRejected => l10n.noticeConfigRejected(detail),
+    NoticeKind.configInvalid => l10n.noticeConfigInvalid(detail),
+    NoticeKind.engineApiTimeout => l10n.noticeEngineApiTimeout,
+    NoticeKind.systemProxyUnavailable => l10n.noticeSystemProxyUnavailable,
     // Already-final text: an engine message or a redacted exception.
     NoticeKind.passthrough => detail,
   };

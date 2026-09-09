@@ -15,6 +15,9 @@ class L10nEn extends L10n {
   String get appShortName => 'SingBox';
 
   @override
+  String get appTagline => 'PROXY & TRAFFIC';
+
+  @override
   String get actionCancel => 'Cancel';
 
   @override
@@ -304,6 +307,22 @@ class L10nEn extends L10n {
   String get nodesUnreachable => 'Unreachable';
 
   @override
+  String get nodesChain => 'Chain proxy';
+
+  @override
+  String get nodesChainBody =>
+      'Choose an upstream node for this node\'s connection.';
+
+  @override
+  String get nodesChainDirect => 'Direct connection';
+
+  @override
+  String get nodesChainDirectBody => 'Do not use an upstream node';
+
+  @override
+  String get nodesChainNoCandidates => 'No eligible upstream nodes';
+
+  @override
   String get rulesTitle => 'Rules';
 
   @override
@@ -562,6 +581,39 @@ class L10nEn extends L10n {
   @override
   String get settingsSystemProxyBody =>
       'Expose the local proxy; on Windows, also enable it in WinINet';
+
+  @override
+  String get settingsPerAppProxy => 'Per-app proxy';
+
+  @override
+  String get settingsPerAppProxyBody => 'Choose apps to bypass the VPN';
+
+  @override
+  String get settingsPerAppProxyApps => 'Bypass apps';
+
+  @override
+  String settingsPerAppProxyAppsBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count apps bypass the VPN',
+      one: '1 app bypasses the VPN',
+      zero: 'No apps selected',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get settingsPerAppProxySearch => 'Search apps';
+
+  @override
+  String get settingsPerAppProxyNoApps => 'No launchable apps found';
+
+  @override
+  String get settingsPerAppProxyNoMatches => 'No matching apps';
+
+  @override
+  String get settingsPerAppProxyLoadFailed => 'Could not load the app list';
 
   @override
   String get settingsStrictRoute => 'Strict route';
@@ -826,6 +878,32 @@ class L10nEn extends L10n {
   String noticeTunUnprivileged(String binary) {
     return 'TUN was not authorized. Connect again to get the prompt, grant it with: sudo setcap cap_net_admin,cap_net_raw+ep $binary — or switch to system proxy mode.';
   }
+
+  @override
+  String get noticeTunNeedsAdmin =>
+      'TUN mode needs administrator rights. Connect again and allow the prompt, or switch to system proxy mode.';
+
+  @override
+  String get noticeElevationFailed =>
+      'Could not start with administrator rights. Try again, or switch to system proxy mode.';
+
+  @override
+  String noticeConfigRejected(String code) {
+    return 'The proxy core rejected the generated configuration (exit $code). Check the endpoint settings and custom rules.';
+  }
+
+  @override
+  String noticeConfigInvalid(String problem) {
+    return 'The generated configuration is unusable ($problem). Check the endpoint settings and custom rules.';
+  }
+
+  @override
+  String get noticeEngineApiTimeout =>
+      'The proxy core started but never answered its control API. Another program may be holding the port.';
+
+  @override
+  String get noticeSystemProxyUnavailable =>
+      'The system proxy settings could not be changed, so nothing would be routed. Try TUN mode instead.';
 
   @override
   String platformUnsupported(String platform) {

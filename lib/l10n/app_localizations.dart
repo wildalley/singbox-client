@@ -109,6 +109,12 @@ abstract class L10n {
   /// **'SingBox'**
   String get appShortName;
 
+  /// No description provided for @appTagline.
+  ///
+  /// In en, this message translates to:
+  /// **'PROXY & TRAFFIC'**
+  String get appTagline;
+
   /// No description provided for @actionCancel.
   ///
   /// In en, this message translates to:
@@ -637,6 +643,36 @@ abstract class L10n {
   /// **'Unreachable'**
   String get nodesUnreachable;
 
+  /// No description provided for @nodesChain.
+  ///
+  /// In en, this message translates to:
+  /// **'Chain proxy'**
+  String get nodesChain;
+
+  /// No description provided for @nodesChainBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an upstream node for this node\'s connection.'**
+  String get nodesChainBody;
+
+  /// No description provided for @nodesChainDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct connection'**
+  String get nodesChainDirect;
+
+  /// No description provided for @nodesChainDirectBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Do not use an upstream node'**
+  String get nodesChainDirectBody;
+
+  /// No description provided for @nodesChainNoCandidates.
+  ///
+  /// In en, this message translates to:
+  /// **'No eligible upstream nodes'**
+  String get nodesChainNoCandidates;
+
   /// No description provided for @rulesTitle.
   ///
   /// In en, this message translates to:
@@ -1123,6 +1159,54 @@ abstract class L10n {
   /// **'Expose the local proxy; on Windows, also enable it in WinINet'**
   String get settingsSystemProxyBody;
 
+  /// No description provided for @settingsPerAppProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Per-app proxy'**
+  String get settingsPerAppProxy;
+
+  /// No description provided for @settingsPerAppProxyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose apps to bypass the VPN'**
+  String get settingsPerAppProxyBody;
+
+  /// No description provided for @settingsPerAppProxyApps.
+  ///
+  /// In en, this message translates to:
+  /// **'Bypass apps'**
+  String get settingsPerAppProxyApps;
+
+  /// No description provided for @settingsPerAppProxyAppsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No apps selected} =1{1 app bypasses the VPN} other{{count} apps bypass the VPN}}'**
+  String settingsPerAppProxyAppsBody(int count);
+
+  /// No description provided for @settingsPerAppProxySearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search apps'**
+  String get settingsPerAppProxySearch;
+
+  /// No description provided for @settingsPerAppProxyNoApps.
+  ///
+  /// In en, this message translates to:
+  /// **'No launchable apps found'**
+  String get settingsPerAppProxyNoApps;
+
+  /// No description provided for @settingsPerAppProxyNoMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching apps'**
+  String get settingsPerAppProxyNoMatches;
+
+  /// No description provided for @settingsPerAppProxyLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the app list'**
+  String get settingsPerAppProxyLoadFailed;
+
   /// No description provided for @settingsStrictRoute.
   ///
   /// In en, this message translates to:
@@ -1518,6 +1602,42 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'TUN was not authorized. Connect again to get the prompt, grant it with: sudo setcap cap_net_admin,cap_net_raw+ep {binary} — or switch to system proxy mode.'**
   String noticeTunUnprivileged(String binary);
+
+  /// Windows: the same missing privilege as noticeTunUnprivileged, but the fix is the UAC prompt rather than granting a capability to a path.
+  ///
+  /// In en, this message translates to:
+  /// **'TUN mode needs administrator rights. Connect again and allow the prompt, or switch to system proxy mode.'**
+  String get noticeTunNeedsAdmin;
+
+  /// Windows: UAC was accepted or could not be shown, but no elevated instance took over.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not start with administrator rights. Try again, or switch to system proxy mode.'**
+  String get noticeElevationFailed;
+
+  /// The engine's own output is deliberately not shown: a malformed endpoint can put credentials into that diagnostic.
+  ///
+  /// In en, this message translates to:
+  /// **'The proxy core rejected the generated configuration (exit {code}). Check the endpoint settings and custom rules.'**
+  String noticeConfigRejected(String code);
+
+  /// The app's own check, before any runtime sees the config. Unlike noticeConfigRejected the engine was never started, so the detail is the failed field's name — never its value, since this config holds the node credentials and the API token.
+  ///
+  /// In en, this message translates to:
+  /// **'The generated configuration is unusable ({problem}). Check the endpoint settings and custom rules.'**
+  String noticeConfigInvalid(String problem);
+
+  /// Shown when the readiness probe runs out before the core's Clash API responds.
+  ///
+  /// In en, this message translates to:
+  /// **'The proxy core started but never answered its control API. Another program may be holding the port.'**
+  String get noticeEngineApiTimeout;
+
+  /// Desktop: the host-wide proxy takeover failed before the tunnel came up.
+  ///
+  /// In en, this message translates to:
+  /// **'The system proxy settings could not be changed, so nothing would be routed. Try TUN mode instead.'**
+  String get noticeSystemProxyUnavailable;
 
   /// No description provided for @platformUnsupported.
   ///

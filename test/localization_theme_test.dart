@@ -16,7 +16,7 @@ import 'package:singbox_client/models/proxy_state.dart';
 import 'package:singbox_client/state/app_state.dart';
 import 'package:singbox_client/ui/theme.dart';
 
-import 'widget_test.dart' show FakeProxyController, node;
+import 'widget_test.dart' show FakeProxyController, fakePortAllocator, node;
 
 Future<({AppState state, FakeProxyController controller})> buildState({
   List<ProxyNode> nodes = const [],
@@ -28,7 +28,11 @@ Future<({AppState state, FakeProxyController controller})> buildState({
   await storage.writeSettings(settings);
   final controller = FakeProxyController();
   return (
-    state: AppState(storage: storage, controller: controller),
+    state: AppState(
+      storage: storage,
+      controller: controller,
+      portAllocator: fakePortAllocator,
+    ),
     controller: controller,
   );
 }

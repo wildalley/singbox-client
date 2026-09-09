@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Rasterizes docs/design/icon/*.svg into the launcher PNGs and the tray icons.
+# Builds native icon resources from the ribbon master and small-size vectors.
 #
-# API 26+ gets the vector adaptive icon (res/drawable/ic_launcher_*.xml), so
+# API 26+ gets layered adaptive artwork (res/drawable/ic_launcher_*.xml), so
 # these only serve Android 7.x — but minSdk is 24, so they ship. The _round set
 # is narrower still: API 25 is the only level that asks for it.
 #
-# Needs rsvg-convert (librsvg). Re-run after editing an SVG and commit the
-# PNGs; the build does not generate them.
+# Needs rsvg-convert (librsvg) and magick (ImageMagick). Re-run after editing
+# docs/design/icon/ and commit the generated native assets.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -16,6 +16,17 @@ command -v rsvg-convert >/dev/null || {
   echo "rsvg-convert not found (Arch: pacman -S librsvg)" >&2
   exit 1
 }
+command -v magick >/dev/null || {
+  echo "magick not found (Arch: pacman -S imagemagick)" >&2
+  exit 1
+}
+
+master=docs/design/icon/app-icon-master.png
+mkdir -p "$res/drawable-nodpi"
+magick "$master" -resize 512x512 "$res/drawable-nodpi/ic_launcher_art.png"
+magick "$master" -define icon:auto-resize=256,128,64,48,32,24,16 \
+  windows/runner/resources/app_icon.ico
+magick "$master" -resize 256x256 assets/branding/app-icon.png
 
 # Android's launcher-icon densities: mdpi is 48px, each step scales from there.
 for name in ic_launcher ic_launcher_round; do

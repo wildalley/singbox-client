@@ -18,16 +18,39 @@ enum NoticeKind {
   ruleSetsUpdateFailed,
   ruleSetsUnavailable,
 
-  /// The three start failures the app works out for itself rather than reading
-  /// off the engine. Each names a fix, so each gets a sentence in the user's
+  /// The start failures the app works out for itself rather than reading off
+  /// the engine. Each names a fix, so each gets a sentence in the user's
   /// language where engine text would be passed through untranslated.
   engineMissing,
 
   /// [AppNotice.detail] carries the version that was found.
   engineTooOld,
 
-  /// [AppNotice.detail] carries the binary to grant the capability to.
+  /// [AppNotice.detail] carries the binary to grant the capability to, on the
+  /// platform where a path is the fix. Empty where the fix is a prompt.
   tunUnprivileged,
+
+  /// The elevated instance never took over, so nothing is running.
+  elevationFailed,
+
+  /// The engine refused the rendered config. [AppNotice.detail] carries its
+  /// exit code, deliberately not its output.
+  configRejected,
+
+  /// The app refused its own rendered config, before any runtime saw it.
+  ///
+  /// Distinct from [configRejected]: that one is the engine's verdict, reported
+  /// after a process ran. This one means the config never left the app, so the
+  /// tunnel is untouched and nothing needs stopping. [AppNotice.detail] carries
+  /// the field at fault, never its value — the config holds node credentials and
+  /// the Clash API token.
+  configInvalid,
+
+  /// The core came up but never answered its control API.
+  engineApiTimeout,
+
+  /// The host's proxy settings could not be taken over.
+  systemProxyUnavailable,
 
   /// Text that is already final: an engine error or a redacted exception.
   /// Not translatable, so it is passed through as-is.

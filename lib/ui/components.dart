@@ -439,6 +439,12 @@ class _MiniBarsPainter extends CustomPainter {
 /// optional signal field belongs only on a live connection surface, keeping the
 /// rest of the app calm while still giving the dashboard the presence of the
 /// reference console.
+///
+/// The signal field reads the tunnel's own throughput. It used to be a fixed
+/// diagram on a twelve-second loop, which meant it kept flowing at a steady rate
+/// through an idle tunnel and looked identical during a download — a decoration
+/// that implied activity it knew nothing about. Given [downlink] and [uplink] it
+/// instead brightens, quickens and stills with the traffic actually moving.
 class ConsoleBackground extends StatefulWidget {
   const ConsoleBackground({
     super.key,
@@ -446,6 +452,8 @@ class ConsoleBackground extends StatefulWidget {
     this.accent,
     this.animate = false,
     this.showSignals = false,
+    this.downlink = const [],
+    this.uplink = const [],
   });
 
   final Widget? child;
@@ -454,11 +462,21 @@ class ConsoleBackground extends StatefulWidget {
   final Color? accent;
 
   /// Whether the signal field should move. It automatically pauses for reduced
-  /// motion and while this subtree is not ticker-enabled.
+  /// motion, while this subtree is not ticker-enabled, and while the samples
+  /// below are all zero — an idle tunnel holds still rather than burning a
+  /// ticker on motion nobody asked for.
   final bool animate;
 
   /// Draws the low-contrast node-and-packet field behind a live surface.
   final bool showSignals;
+
+  /// Recent throughput in bytes per second, oldest first.
+  ///
+  /// The same series [TrafficFlowChart] draws, and normalised the same way, so
+  /// the backdrop and the chart in front of it cannot disagree about what a
+  /// burst looked like. Empty leaves the field at rest.
+  final List<int> downlink;
+  final List<int> uplink;
 
   @override
   State<ConsoleBackground> createState() => _ConsoleBackgroundState();
@@ -466,10 +484,30 @@ class ConsoleBackground extends StatefulWidget {
 
 class _ConsoleBackgroundState extends State<ConsoleBackground>
     with SingleTickerProviderStateMixin {
+  /// One beat of motion, run once per traffic reading.
+  ///
+  /// Deliberately not a `repeat()`. A free-running loop would keep the field
+  /// moving at a constant rate regardless of the tunnel, which is the dishonesty
+  /// this replaces — and it would also never let a frame-settling wait finish, so
+  /// every test that renders a connected app would hang instead of failing.
+  /// Readings arrive about once a second while connected, so one beat per reading
+  /// is continuous motion while traffic flows and stillness the moment it stops.
+  ///
+  /// A little shorter than the reading interval, so a beat lands and rests rather
+  /// than being cut off mid-flight by the next one.
   late final AnimationController _signalController = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 12),
+    duration: const Duration(milliseconds: 900),
   );
+
+  /// How many nodes the field draws, and so how many samples it reads.
+  static const _nodeCount = 12;
+
+  /// The rate that lights the field fully, in bytes per second.
+  ///
+  /// A round 8 MB/s: fast enough that an ordinary download does not peg the
+  /// field, slow enough that one is clearly busier than a chat app polling.
+  static const _fullScale = 8 * 1024 * 1024;
 
   @override
   void didChangeDependencies() {
@@ -480,23 +518,74 @@ class _ConsoleBackgroundState extends State<ConsoleBackground>
   @override
   void didUpdateWidget(covariant ConsoleBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.animate != widget.animate ||
-        oldWidget.showSignals != widget.showSignals) {
-      _syncAnimation();
-    }
+    _syncAnimation();
   }
 
+  /// Starts a beat if the tunnel is carrying something, and stops otherwise.
+  ///
+  /// Called on every rebuild, which while connected means once per traffic
+  /// reading: each one sets off a beat, and the beats run together into motion
+  /// for as long as the readings keep coming. When they stop — or carry nothing —
+  /// the last beat finishes and the field comes to rest by itself.
   void _syncAnimation() {
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final canAnimate = widget.animate &&
         widget.showSignals &&
+        // Nothing is moving through the tunnel, so nothing moves here either.
+        // The graph stays drawn — it is the tunnel's shape, not its activity.
+        _rate(widget) > 0 &&
         !reduceMotion &&
         TickerMode.valuesOf(context).enabled;
-    if (canAnimate) {
-      if (!_signalController.isAnimating) _signalController.repeat();
-    } else {
+    if (!canAnimate) {
       _signalController.stop();
+      return;
     }
+    // From zero rather than resumed: a beat is one pass of the packets along
+    // their links, and restarting it is what makes a new reading visible.
+    if (!_signalController.isAnimating) _signalController.forward(from: 0);
+  }
+
+  /// The most recent combined throughput sample, in bytes per second.
+  static int _rate(ConsoleBackground widget) =>
+      (widget.downlink.isEmpty ? 0 : widget.downlink.last) +
+      (widget.uplink.isEmpty ? 0 : widget.uplink.last);
+
+  /// Current throughput as a 0..1 brightness, on a log scale.
+  ///
+  /// Log rather than linear because throughput spans orders of magnitude: on a
+  /// linear scale against any ceiling worth having, everything short of a
+  /// saturated link would sit indistinguishably at the dim end.
+  double get _intensity {
+    final rate = _rate(widget);
+    if (rate <= 0) return 0;
+    final value = math.log(1 + rate) / math.log(1 + _fullScale);
+    return value < 0 ? 0 : (value > 1 ? 1 : value);
+  }
+
+  /// The recent history as one 0..1 level per node, oldest first.
+  ///
+  /// Normalised to the peak across both directions, which is exactly how
+  /// [TrafficFlowChart] scales the same samples — so the backdrop and the chart
+  /// drawn in front of it cannot disagree about how big a burst was.
+  List<double> get _levels {
+    final down = widget.downlink;
+    final up = widget.uplink;
+    final length = math.max(down.length, up.length);
+    if (length == 0) return List.filled(_nodeCount, 0);
+
+    final combined = <int>[
+      for (var i = 0; i < length; i++)
+        (i < down.length ? down[i] : 0) + (i < up.length ? up[i] : 0),
+    ];
+    final peak = combined.fold(0, math.max);
+    if (peak <= 0) return List.filled(_nodeCount, 0);
+
+    // Nearest sample rather than an average: a burst is usually one tall
+    // sample, and averaging it with its quiet neighbours is how it disappears.
+    return [
+      for (var i = 0; i < _nodeCount; i++)
+        combined[(i * length / _nodeCount).floor()] / peak,
+    ];
   }
 
   @override
@@ -513,12 +602,14 @@ class _ConsoleBackgroundState extends State<ConsoleBackground>
     return RepaintBoundary(
       child: CustomPaint(
         painter: _ConsolePainter(
-          line: palette.text.withValues(alpha: dark ? .035 : .045),
-          glowColour: accent.withValues(alpha: dark ? .10 : .05),
+          line: palette.text.withValues(alpha: dark ? .014 : .018),
+          glowColour: accent.withValues(alpha: dark ? .045 : .025),
           signalColour: accent,
           dark: dark,
           phase: widget.showSignals ? _signalController : null,
           showSignals: widget.showSignals,
+          intensity: _intensity,
+          levels: _levels,
         ),
         child: widget.child,
       ),
@@ -534,6 +625,8 @@ class _ConsolePainter extends CustomPainter {
     required this.dark,
     required this.phase,
     required this.showSignals,
+    required this.intensity,
+    required this.levels,
   }) : super(repaint: phase);
 
   final Color line;
@@ -543,7 +636,14 @@ class _ConsolePainter extends CustomPainter {
   final Animation<double>? phase;
   final bool showSignals;
 
-  static const _cell = 32.0;
+  /// Current throughput, 0..1 on a log scale. Drives brightness and speed.
+  final double intensity;
+
+  /// One 0..1 level per node, oldest first — the recent history of the same
+  /// samples the traffic chart draws.
+  final List<double> levels;
+
+  static const _cell = 48.0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -571,14 +671,20 @@ class _ConsolePainter extends CustomPainter {
     );
 
     if (showSignals && size.width >= 180 && size.height >= 120) {
-      _drawSignalField(canvas, size, phase?.value ?? .18);
+      _drawSignalField(canvas, size, phase?.value ?? 0);
     }
   }
 
-  /// A small deterministic network diagram, biased to the right side of the
-  /// card so headings and controls retain a quiet reading surface. The moving
-  /// dots are packets, not decorative confetti: they only appear while a
-  /// connection is actively establishing or established.
+  /// A small network diagram, biased to the right side of the card so headings
+  /// and controls retain a quiet reading surface.
+  ///
+  /// The layout is fixed — it stands for the tunnel, which does not change shape
+  /// while it is up — but everything drawn over it comes from [levels] and
+  /// [intensity]. Each node carries one recent throughput sample: a busy moment
+  /// is a bright wide node, a quiet one nearly disappears, and the row of them
+  /// left to right is the same history the traffic chart plots. The packets move
+  /// at a rate the tunnel is actually sustaining, and an idle tunnel holds
+  /// perfectly still.
   void _drawSignalField(Canvas canvas, Size size, double progress) {
     const points = <Offset>[
       Offset(.52, .16),
@@ -617,48 +723,91 @@ class _ConsolePainter extends CustomPainter {
       (10, 11),
     ];
 
+    /// The sample at [index], or 0 where there is no history for it yet.
+    double level(int index) {
+      if (index < 0 || index >= levels.length) return 0;
+      final value = levels[index];
+      return value < 0 ? 0 : (value > 1 ? 1 : value);
+    }
+
     Offset pointAt(int index) {
       final source = points[index];
       final angle = progress * math.pi * 2 + index * 1.73;
       // Sub-pixel drift is enough to keep the field alive. Larger motion makes
       // a dense dashboard feel unstable, especially beside changing figures.
+      // Busy nodes drift furthest, so the eye finds the active part of the
+      // history without the whole field becoming restless.
+      final reach = 1.1 + level(index) * 2.2;
       return Offset(
-        source.dx * size.width + math.sin(angle) * 2.4,
-        source.dy * size.height + math.cos(angle * 1.17) * 2.1,
+        source.dx * size.width + math.sin(angle) * reach,
+        source.dy * size.height + math.cos(angle * 1.17) * reach * .88,
       );
     }
 
     final resolved = <Offset>[
       for (var i = 0; i < points.length; i++) pointAt(i)
     ];
-    final linkPen = Paint()
-      ..color = signalColour.withValues(alpha: dark ? .105 : .065)
-      ..strokeWidth = 1;
+
+    // The graph is always drawn: it stands for the tunnel, which is up whether
+    // or not bytes are moving right now. Its links only brighten with the two
+    // samples they join, so an idle tunnel is a faint outline rather than a
+    // missing one.
+    final baseLink = dark ? .055 : .032;
+    final litLink = dark ? .105 : .065;
     for (final (from, to) in links) {
-      canvas.drawLine(resolved[from], resolved[to], linkPen);
+      final share = (level(from) + level(to)) / 2;
+      canvas.drawLine(
+        resolved[from],
+        resolved[to],
+        Paint()
+          ..color = signalColour.withValues(
+            alpha: baseLink + (litLink - baseLink) * share,
+          )
+          ..strokeWidth = 1,
+      );
     }
 
-    final halo = Paint()
-      ..color = signalColour.withValues(alpha: dark ? .14 : .08)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-    final node = Paint()
-      ..color = signalColour.withValues(alpha: dark ? .54 : .38);
-    for (final point in resolved) {
-      canvas.drawCircle(point, 3.3, halo);
-      canvas.drawCircle(point, 1.35, node);
+    for (var i = 0; i < resolved.length; i++) {
+      final share = level(i);
+      final haloAlpha = (dark ? .07 : .04) + (dark ? .16 : .09) * share;
+      final nodeAlpha = (dark ? .26 : .18) + (dark ? .40 : .28) * share;
+      canvas.drawCircle(
+        resolved[i],
+        2.6 + share * 2.4,
+        Paint()
+          ..color = signalColour.withValues(alpha: haloAlpha)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+      );
+      canvas.drawCircle(
+        resolved[i],
+        1.1 + share * .9,
+        Paint()..color = signalColour.withValues(alpha: nodeAlpha),
+      );
     }
 
-    // Four packets travel different links. Offset phases make the graph feel
-    // alive without turning it into a periodic loading spinner.
+    // Packets are the part that has to be honest: a moving dot reads as traffic,
+    // so their number and speed come from the throughput rather than from a
+    // fixed loop. Nothing moving means none drawn — the caller has stopped the
+    // ticker by then, so this is what an idle tunnel actually looks like.
+    if (intensity <= 0) return;
+
     const packetLinks = <(int, int)>[(0, 4), (3, 7), (6, 10), (4, 8)];
+    final count = 1 + (intensity * (packetLinks.length - 1)).round();
+    // Traversals per beat, so throughput sets the speed: a busy tunnel sends a
+    // packet along its link six times where an idle-but-open one sends it once.
+    //
+    // A whole number, which is what makes consecutive beats seam. Each beat runs
+    // progress 0 to 1, so a fractional count would leave the packets somewhere
+    // mid-link at the end of one and snap them back to the start of the next.
+    final turns = 1 + (intensity * 5).round();
     final packetHalo = Paint()
       ..color = signalColour.withValues(alpha: dark ? .42 : .24)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
     final packet = Paint()
       ..color = signalColour.withValues(alpha: dark ? .9 : .72);
-    for (var i = 0; i < packetLinks.length; i++) {
+    for (var i = 0; i < count; i++) {
       final (from, to) = packetLinks[i];
-      final travel = (progress * 1.35 + i * .27) % 1;
+      final travel = (progress * turns + i * .27) % 1;
       final eased = Curves.easeInOut.transform(travel);
       final position = Offset.lerp(resolved[from], resolved[to], eased)!;
       canvas.drawCircle(position, 4.6, packetHalo);
@@ -672,7 +821,20 @@ class _ConsolePainter extends CustomPainter {
       oldDelegate.glowColour != glowColour ||
       oldDelegate.signalColour != signalColour ||
       oldDelegate.dark != dark ||
-      oldDelegate.showSignals != showSignals;
+      oldDelegate.showSignals != showSignals ||
+      // A new traffic sample has to reach the canvas even while the ticker is
+      // stopped: an idle field that just took one reading is not repainted by
+      // `repaint: phase` alone, and would keep showing the old history.
+      oldDelegate.intensity != intensity ||
+      !_sameLevels(oldDelegate.levels, levels);
+
+  static bool _sameLevels(List<double> a, List<double> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 }
 
 /// The wide dashboard's centrepiece: down and up rates on one shared scale.

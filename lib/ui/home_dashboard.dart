@@ -221,86 +221,150 @@ class _HeroCard extends StatelessWidget {
     final nodes = state.nodes;
 
     return GlowCard(
-      accent: accent,
-      lit: connected || proxy.stage == ProxyStage.error,
+      accent: palette.violet,
+      lit: connected,
       padding: EdgeInsets.zero,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: ConsoleBackground(
-          accent: accent,
-          // The field wakes up only when there is a tunnel to describe (or one
-          // is actively being established). The disconnected dashboard keeps
-          // the same grid and vignette, but stays deliberately still.
-          showSignals: connected || state.isBusy,
-          animate: connected || state.isBusy,
-          child: Padding(
-            padding: const EdgeInsets.all(Gap.xl),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      connected ? Icons.shield_rounded : Icons.bolt_rounded,
-                      color: accent,
-                      size: 20,
-                    ),
-                    const SizedBox(width: Gap.sm),
-                    Expanded(
-                      child: Text(
-                        _exitName(l10n, state),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                    ),
-                    const SizedBox(width: Gap.md),
-                    StatusPill(
-                      label: _stageLabel(l10n, proxy.stage),
-                      color: accent,
-                      compact: true,
-                    ),
-                  ],
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: SignalArtwork(
+                opacity: .8,
+                animate: connected,
+                downlink: state.downlinkHistory,
+                uplink: state.uplinkHistory,
+              ),
+            ),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      palette.surface.withValues(alpha: .86),
+                      palette.surface.withValues(alpha: .48),
+                      palette.surface.withValues(alpha: .08),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: Gap.sm),
-                Text(
-                  _stageDetail(l10n, state),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: Gap.xl),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _Stat.text(
-                        label: l10n.homeUptime,
-                        value: connected && proxy.since != null
-                            ? formatUptime(clockNow().difference(proxy.since!))
-                            : '—',
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(Gap.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        connected ? Icons.shield_rounded : Icons.bolt_rounded,
+                        color: accent,
+                        size: 20,
                       ),
-                    ),
-                    Expanded(
-                      child: _Stat.text(
-                        label: l10n.homeAvailableNodes,
-                        value: l10n.homeAvailableOf(
-                          _availableNodes(nodes),
-                          nodes.length,
+                      const SizedBox(width: Gap.sm),
+                      Expanded(
+                        child: Text(
+                          _exitName(l10n, state),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
+                      const SizedBox(width: Gap.md),
+                      StatusPill(
+                        label: _stageLabel(l10n, proxy.stage),
+                        color: accent,
+                        compact: true,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: Gap.sm),
+                  Text(
+                    _stageDetail(l10n, state),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    l10n.homeDownload.toUpperCase(),
+                    style: monoStyle(size: 10, color: palette.muted),
+                  ),
+                  const SizedBox(height: Gap.xs),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        AnimatedCount(
+                          // A unit change starts a fresh count. Tweening a KB
+                          // value beside the new MB label would overstate the
+                          // rate during the transition.
+                          key: ValueKey(connected
+                              ? formatRate(state.traffic.downlink)
+                                  .split(' ')
+                                  .last
+                              : 'unavailable'),
+                          value: state.traffic.downlink,
+                          format: (value) => connected
+                              ? formatRate(value).split(' ').first
+                              : '—',
+                          style: monoStyle(
+                            size: 54,
+                            weight: FontWeight.w600,
+                            color: palette.text,
+                          ),
+                        ),
+                        const SizedBox(width: Gap.sm),
+                        Text(
+                          connected
+                              ? formatRate(state.traffic.downlink)
+                                  .split(' ')
+                                  .last
+                              : '',
+                          style: monoStyle(size: 17, color: palette.muted),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                // Takes up whatever height the taller neighbouring card forces on
-                // this one. Without it the surplus fell below the button as a
-                // band of bare backdrop.
-                const Spacer(),
-                const SizedBox(height: Gap.xl),
-                _ConnectButton(state: state, onOpenNodes: onOpenNodes),
-              ],
+                  ),
+                  const SizedBox(height: 22),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _Stat.text(
+                          label: l10n.homeUptime,
+                          value: connected && proxy.since != null
+                              ? formatUptime(
+                                  clockNow().difference(proxy.since!))
+                              : '—',
+                        ),
+                      ),
+                      Expanded(
+                        child: _Stat.text(
+                          label: l10n.homeAvailableNodes,
+                          value: l10n.homeAvailableOf(
+                            _availableNodes(nodes),
+                            nodes.length,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Takes up whatever height the taller neighbouring card forces on
+                  // this one. Without it the surplus fell below the button as a
+                  // band of bare backdrop.
+                  const Spacer(),
+                  const SizedBox(height: Gap.xl),
+                  _ConnectButton(state: state, onOpenNodes: onOpenNodes),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -324,6 +388,7 @@ class _RingCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           PanelTitle(title: l10n.homeActiveNode, icon: Icons.public),
+          const Spacer(),
           const SizedBox(height: Gap.lg),
           Center(
             child: RingGauge(
@@ -346,6 +411,7 @@ class _RingCard extends StatelessWidget {
           ),
           const SizedBox(height: Gap.lg),
           _ExitAddressRow(state: state),
+          const Spacer(),
           const SizedBox(height: Gap.md),
           OutlinedButton(
             onPressed: onOpenNodes,

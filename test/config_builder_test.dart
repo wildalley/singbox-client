@@ -12,6 +12,7 @@ ProxyNode _node({
   NodeProtocol protocol = NodeProtocol.trojan,
   String server = 'example.com',
   int port = 443,
+  String? detourNodeId,
 }) {
   return ProxyNode(
     id: id,
@@ -19,6 +20,7 @@ ProxyNode _node({
     protocol: protocol,
     server: server,
     serverPort: port,
+    detourNodeId: detourNodeId,
     raw: const {'password': 'secret'},
   );
 }
@@ -44,6 +46,7 @@ Map<String, dynamic> _build({
   String? ruleSetDir,
   String clashSecret = 'test-secret',
   bool? tunOnly,
+  bool? android,
 }) =>
     ConfigBuilder.build(
       nodes: nodes,
@@ -54,6 +57,7 @@ Map<String, dynamic> _build({
       // Pinned false by default: the real value is Platform.isAndroid, and a
       // test that renders differently per host is a test that proves nothing.
       tunOnly: tunOnly ?? false,
+      android: android ?? false,
     );
 
 void main() {
@@ -154,13 +158,13 @@ void main() {
         settings: const AppSettings(),
       );
 
-      final badTls = _outbound(config, ConfigBuilder.outboundTag(bad))!['tls']
-          as Map;
+      final badTls =
+          _outbound(config, ConfigBuilder.outboundTag(bad))!['tls'] as Map;
       expect(badTls, isNot(contains('utls')));
       expect(badTls['server_name'], 'sni.example.com');
 
-      final goodTls = _outbound(config, ConfigBuilder.outboundTag(good))!['tls']
-          as Map;
+      final goodTls =
+          _outbound(config, ConfigBuilder.outboundTag(good))!['tls'] as Map;
       expect(goodTls['utls']['fingerprint'], 'chrome');
     });
 
@@ -207,6 +211,24 @@ void main() {
       expect(tags.length, 5);
     });
 
+    test('duplicate endpoint ids are rendered only once', () {
+      final duplicate = [
+        _node(id: 'same', name: 'First'),
+        _node(id: 'same', name: 'Duplicate'),
+      ];
+      final config = _build(
+        nodes: duplicate,
+        selectedNodeId: duplicate.first.id,
+        settings: const AppSettings(),
+      );
+
+      final nodeOutbounds = (config['outbounds'] as List)
+          .where((item) => (item as Map)['type'] == 'trojan')
+          .toList();
+      expect(nodeOutbounds, hasLength(1));
+      expect((nodeOutbounds.single as Map)['tag'], contains('First'));
+    });
+
     test('node credentials survive into the outbound', () {
       final config = _build(
         nodes: [_node()],
@@ -216,6 +238,76 @@ void main() {
 
       final tag = ConfigBuilder.outboundTag(_node());
       expect(_outbound(config, tag)!['password'], 'secret');
+    });
+
+    test('resolves a node detour id to the rendered outbound tag', () {
+      final nodes = [
+        _node(id: 'front', name: 'Front'),
+        _node(id: 'upstream', name: 'Upstream'),
+      ];
+      final config = _build(
+        nodes: [
+          _node(id: 'front', name: 'Front', detourNodeId: 'upstream'),
+          nodes[1],
+        ],
+        selectedNodeId: 'front',
+        settings: const AppSettings(),
+      );
+
+      expect(
+        _outbound(config, ConfigBuilder.outboundTag(nodes.first))!['detour'],
+        ConfigBuilder.outboundTag(nodes[1]),
+      );
+    });
+
+    test('supports multiple hops in one chain', () {
+      final nodes = [
+        _node(id: 'front', name: 'Front', detourNodeId: 'middle'),
+        _node(id: 'middle', name: 'Middle', detourNodeId: 'exit'),
+        _node(id: 'exit', name: 'Exit'),
+      ];
+      final config = _build(
+        nodes: nodes,
+        selectedNodeId: 'front',
+        settings: const AppSettings(),
+      );
+
+      expect(
+        _outbound(config, ConfigBuilder.outboundTag(nodes[0]))!['detour'],
+        ConfigBuilder.outboundTag(nodes[1]),
+      );
+      expect(
+        _outbound(config, ConfigBuilder.outboundTag(nodes[1]))!['detour'],
+        ConfigBuilder.outboundTag(nodes[2]),
+      );
+    });
+
+    test('does not render self-references or cycles', () {
+      final self = _node(id: 'self', name: 'Self', detourNodeId: 'self');
+      final cycle = [
+        _node(id: 'a', name: 'A', detourNodeId: 'b'),
+        _node(id: 'b', name: 'B', detourNodeId: 'a'),
+      ];
+
+      final selfConfig = _build(
+        nodes: [self],
+        selectedNodeId: self.id,
+        settings: const AppSettings(),
+      );
+      final cycleConfig = _build(
+        nodes: cycle,
+        selectedNodeId: cycle.first.id,
+        settings: const AppSettings(),
+      );
+
+      expect(_outbound(selfConfig, ConfigBuilder.outboundTag(self))!['detour'],
+          isNull);
+      for (final node in cycle) {
+        expect(
+          _outbound(cycleConfig, ConfigBuilder.outboundTag(node))!['detour'],
+          isNull,
+        );
+      }
     });
   });
 
@@ -435,16 +527,54 @@ void main() {
       expect(((v6['inbounds'] as List).first as Map)['address'], hasLength(2));
     });
 
+    test('per-app bypass packages are rendered only for Android TUN', () {
+      final config = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(
+          proxyMode: ProxyMode.tun,
+          perAppProxyEnabled: true,
+          perAppProxyBypass: ['com.example.mail', 'com.example.video'],
+        ),
+        tunOnly: true,
+        android: true,
+      );
+
+      final tun = (config['inbounds'] as List).first as Map;
+      expect(tun['exclude_package'], [
+        'com.example.mail',
+        'com.example.video',
+      ]);
+    });
+
+    test('disabling per-app proxy removes the package exclusion', () {
+      final config = _build(
+        nodes: [_node()],
+        selectedNodeId: 'n1',
+        settings: const AppSettings(
+          proxyMode: ProxyMode.tun,
+          perAppProxyEnabled: false,
+          perAppProxyBypass: ['com.example.mail'],
+        ),
+        tunOnly: true,
+      );
+
+      final tun = (config['inbounds'] as List).first as Map;
+      expect(tun['exclude_package'], isNull);
+    });
+
     test('system proxy adds the platform http proxy block', () {
       final off = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(proxyMode: ProxyMode.tun, systemProxy: false),
+        settings:
+            const AppSettings(proxyMode: ProxyMode.tun, systemProxy: false),
       );
       final on = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(proxyMode: ProxyMode.tun, systemProxy: true),
+        settings:
+            const AppSettings(proxyMode: ProxyMode.tun, systemProxy: true),
       );
 
       expect(((off['inbounds'] as List).first as Map)['platform'], isNull);
@@ -458,17 +588,20 @@ void main() {
       final config = _build(
         nodes: [_node()],
         selectedNodeId: 'n1',
-        settings: const AppSettings(proxyMode: ProxyMode.tun, systemProxy: true),
+        settings:
+            const AppSettings(proxyMode: ProxyMode.tun, systemProxy: true),
       );
 
       final inbounds = config['inbounds'] as List;
       final tun = inbounds.first as Map;
-      final mixed = inbounds.firstWhere((item) => (item as Map)['type'] == 'mixed') as Map;
+      final mixed = inbounds
+          .firstWhere((item) => (item as Map)['type'] == 'mixed') as Map;
 
-      expect(tun['type'], 'tun', reason: 'the tests read the tun as inbounds[0]');
+      expect(tun['type'], 'tun',
+          reason: 'the tests read the tun as inbounds[0]');
       expect(mixed['listen'], '127.0.0.1',
           reason: 'the sing-box default would expose an open proxy to the LAN');
-      expect(mixed['listen_port'], ConfigBuilder.localProxyPort);
+      expect(mixed['listen_port'], ConfigBuilder.defaultLocalProxyPort);
       expect(
         (((tun['platform'] as Map)['http_proxy'] as Map))['server_port'],
         mixed['listen_port'],
@@ -486,7 +619,8 @@ void main() {
       );
 
       expect(
-        (config['inbounds'] as List).where((item) => (item as Map)['type'] == 'mixed'),
+        (config['inbounds'] as List)
+            .where((item) => (item as Map)['type'] == 'mixed'),
         hasLength(1),
       );
     });
@@ -505,7 +639,8 @@ void main() {
       );
 
       expect(
-        (config['inbounds'] as List).where((item) => (item as Map)['type'] == 'tun'),
+        (config['inbounds'] as List)
+            .where((item) => (item as Map)['type'] == 'tun'),
         isEmpty,
       );
     });
@@ -525,7 +660,8 @@ void main() {
 
         expect(mixed, hasLength(1), reason: 'mode $mode');
         expect((mixed.single as Map)['listen'], '127.0.0.1');
-        expect((mixed.single as Map)['listen_port'], ConfigBuilder.localProxyPort);
+        expect((mixed.single as Map)['listen_port'],
+            ConfigBuilder.defaultLocalProxyPort);
       }
     });
 
@@ -553,12 +689,12 @@ void main() {
           selectedNodeId: 'n1',
           settings: AppSettings(proxyMode: mode),
         );
-        final clash =
-            (config['experimental'] as Map)['clash_api'] as Map<String, dynamic>;
+        final clash = (config['experimental'] as Map)['clash_api']
+            as Map<String, dynamic>;
 
         expect(
           clash['external_controller'],
-          '127.0.0.1:${ConfigBuilder.clashApiPort}',
+          '127.0.0.1:${ConfigBuilder.defaultClashApiPort}',
           reason: 'mode $mode',
         );
         expect(clash['secret'], 'test-secret', reason: 'mode $mode');
@@ -576,7 +712,8 @@ void main() {
       );
 
       expect(
-        (config['inbounds'] as List).where((item) => (item as Map)['type'] == 'tun'),
+        (config['inbounds'] as List)
+            .where((item) => (item as Map)['type'] == 'tun'),
         isEmpty,
       );
     });
@@ -704,8 +841,8 @@ void main() {
           servers.firstWhere((item) => item['tag'] == 'dns-bootstrap');
 
       expect(bootstrap['type'], 'udp');
-      expect(InternetAddress.tryParse(bootstrap['server'] as String),
-          isNotNull);
+      expect(
+          InternetAddress.tryParse(bootstrap['server'] as String), isNotNull);
       expect(bootstrap.containsKey('detour'), isFalse,
           reason: 'must reach the network without the tunnel');
       expect(servers.any((item) => item['type'] == 'local'), isFalse,
@@ -740,8 +877,8 @@ void main() {
           .map((item) => Map<String, dynamic>.from(item as Map))
           .firstWhere((item) => item['tag'] == 'dns-bootstrap');
 
-      expect(InternetAddress.tryParse(bootstrap['server'] as String),
-          isNotNull);
+      expect(
+          InternetAddress.tryParse(bootstrap['server'] as String), isNotNull);
     });
 
     test('fakeip adds its server and is reflected in the cache file', () {
@@ -780,7 +917,10 @@ void main() {
       );
 
       final api = clashApi(config);
-      expect(api['external_controller'], '127.0.0.1:${ConfigBuilder.clashApiPort}');
+      expect(
+        api['external_controller'],
+        '127.0.0.1:${ConfigBuilder.defaultClashApiPort}',
+      );
       expect(api['secret'], 'deadbeef');
     });
 

@@ -69,7 +69,7 @@ class ConfigFacts {
       throw const FormatException('config has no inbounds');
     }
 
-    var mixedPort = ConfigBuilder.localProxyPort;
+    var mixedPort = ConfigBuilder.defaultLocalProxyPort;
     var hasTun = false;
     for (final raw in inbounds) {
       final inbound = _map(raw);

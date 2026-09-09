@@ -1,8 +1,6 @@
 /// Settings screen: subscriptions, network behaviour, appearance, diagnostics.
 library;
 
-import 'dart:io';
-
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -11,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/subscription.dart';
+import '../platform/android_apps.dart';
 import '../state/app_state.dart';
 import '../version.dart';
 import 'clock.dart';
@@ -28,8 +27,7 @@ class SettingsPage extends StatelessWidget {
   final VoidCallback onOpenLogs;
 
   @override
-  Widget build(BuildContext context) =>
-      PageBody(state: state, builder: _build);
+  Widget build(BuildContext context) => PageBody(state: state, builder: _build);
 
   Widget _build(BuildContext context) {
     final l10n = L10n.of(context);
@@ -103,6 +101,29 @@ class SettingsPage extends StatelessWidget {
                 onChanged: (value) =>
                     state.applySettings(settings.copyWith(systemProxy: value)),
               ),
+              // Android can exclude selected packages at the VpnService layer.
+              // Desktop system proxies have no equivalent package boundary, so
+              // this control intentionally remains Android-only.
+              if (Platform.isAndroid) ...[
+                SettingRow(
+                  icon: Icons.apps_outlined,
+                  title: l10n.settingsPerAppProxy,
+                  subtitle: l10n.settingsPerAppProxyBody,
+                  value: settings.perAppProxyEnabled,
+                  onChanged: (value) => state.applySettings(
+                    settings.copyWith(perAppProxyEnabled: value),
+                  ),
+                ),
+                if (settings.perAppProxyEnabled)
+                  SettingRow(
+                    icon: Icons.list_alt_outlined,
+                    title: l10n.settingsPerAppProxyApps,
+                    subtitle: l10n.settingsPerAppProxyAppsBody(
+                      settings.perAppProxyBypass.length,
+                    ),
+                    onTap: () => _editPerAppProxy(context),
+                  ),
+              ],
             ],
           ],
         ),
@@ -276,6 +297,27 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
+  Future<void> _editPerAppProxy(BuildContext context) async {
+    final selected = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .88,
+        minChildSize: .65,
+        maxChildSize: .96,
+        builder: (context, scrollController) => _PerAppProxySheet(
+          scrollController: scrollController,
+          initialSelection: state.settings.perAppProxyBypass,
+        ),
+      ),
+    );
+    if (selected == null || !context.mounted) return;
+    await state.applySettings(
+      state.settings.copyWith(perAppProxyBypass: selected),
+    );
+  }
+
   Future<void> _editMtu(BuildContext context) async {
     final l10n = L10n.of(context);
     final palette = context.palette;
@@ -391,6 +433,235 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
+class _PerAppProxySheet extends StatefulWidget {
+  const _PerAppProxySheet({
+    required this.scrollController,
+    required this.initialSelection,
+  });
+
+  final ScrollController scrollController;
+  final List<String> initialSelection;
+
+  @override
+  State<_PerAppProxySheet> createState() => _PerAppProxySheetState();
+}
+
+class _PerAppProxySheetState extends State<_PerAppProxySheet> {
+  late Future<List<InstalledApp>> _apps;
+  late final Set<String> _selected;
+  final _searchController = TextEditingController();
+  var _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = {...widget.initialSelection};
+    _apps = installedApps();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController
+      ..removeListener(_onSearchChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final query = _searchController.text;
+    if (_query == query || !mounted) return;
+    setState(() => _query = query);
+  }
+
+  void _retry() {
+    setState(() => _apps = installedApps());
+  }
+
+  void _save() {
+    Navigator.of(context).pop(_selected.toList());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final palette = context.palette;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return SafeArea(
+      top: false,
+      child: AnimatedPadding(
+        duration: motionOf(context, Motion.fast),
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.md, Gap.sm, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.settingsPerAppProxyApps,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: Gap.xs),
+                        Text(
+                          l10n.settingsPerAppProxyBody,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: l10n.actionCancel,
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding:
+                  const EdgeInsets.fromLTRB(Gap.xl, Gap.lg, Gap.xl, Gap.sm),
+              child: TextField(
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  prefixIcon: Icon(Icons.search, color: palette.muted),
+                  hintText: l10n.settingsPerAppProxySearch,
+                ),
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<List<InstalledApp>>(
+                future: _apps,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(Gap.xl),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.error_outline, color: palette.amber),
+                            const SizedBox(height: Gap.sm),
+                            Text(
+                              l10n.settingsPerAppProxyLoadFailed,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: Gap.sm),
+                            TextButton(
+                              onPressed: _retry,
+                              child: Text(l10n.actionRefresh),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  final query = _query.trim().toLowerCase();
+                  final apps = (snapshot.data ?? const <InstalledApp>[])
+                      .where(
+                        (app) =>
+                            query.isEmpty ||
+                            app.label.toLowerCase().contains(query) ||
+                            app.packageName.toLowerCase().contains(query),
+                      )
+                      .toList();
+                  if (apps.isEmpty) {
+                    return Center(
+                      child: Text(
+                        query.isEmpty
+                            ? l10n.settingsPerAppProxyNoApps
+                            : l10n.settingsPerAppProxyNoMatches,
+                        textAlign: TextAlign.center,
+                      ),
+                    );
+                  }
+
+                  return ListView.separated(
+                    controller: widget.scrollController,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(
+                      Gap.lg,
+                      Gap.sm,
+                      Gap.lg,
+                      Gap.md,
+                    ),
+                    itemCount: apps.length,
+                    separatorBuilder: (_, __) => const Divider(indent: 52),
+                    itemBuilder: (context, index) {
+                      final app = apps[index];
+                      return CheckboxListTile(
+                        value: _selected.contains(app.packageName),
+                        onChanged: (checked) => setState(() {
+                          if (checked == true) {
+                            _selected.add(app.packageName);
+                          } else {
+                            _selected.remove(app.packageName);
+                          }
+                        }),
+                        secondary: Icon(
+                          Icons.apps_outlined,
+                          color: palette.violetSoft,
+                        ),
+                        title: Text(
+                          app.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          app.packageName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: palette.muted, fontSize: 11),
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.trailing,
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding:
+                  const EdgeInsets.fromLTRB(Gap.xl, Gap.sm, Gap.xl, Gap.md),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.settingsPerAppProxyAppsBody(_selected.length),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(l10n.actionCancel),
+                  ),
+                  const SizedBox(width: Gap.sm),
+                  FilledButton(
+                    onPressed: _save,
+                    child: Text(l10n.actionSave),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SubscriptionRow extends StatelessWidget {
   const _SubscriptionRow({required this.state, required this.subscription});
 
@@ -492,7 +763,8 @@ class _RuleSetsRow extends StatelessWidget {
       // fetches the lists itself at start on this platform.
       subtitle = l10n.settingsRuleSetsRemote;
     } else if (install != null && install.downloaded) {
-      subtitle = l10n.settingsRuleSetsDownloaded(relativeTime(l10n, install.at));
+      subtitle =
+          l10n.settingsRuleSetsDownloaded(relativeTime(l10n, install.at));
     } else {
       // A bundled install's timestamp is when the app first ran, not when the
       // list was compiled, so showing an age here would invent freshness.

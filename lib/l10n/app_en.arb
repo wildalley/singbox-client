@@ -2,6 +2,7 @@
   "@@locale": "en",
   "appTitle": "SingBox Client",
   "appShortName": "SingBox",
+  "appTagline": "PROXY & TRAFFIC",
   "actionCancel": "Cancel",
   "actionSave": "Save",
   "actionCopy": "Copy",
@@ -137,6 +138,11 @@
   },
   "nodesUntested": "Untested",
   "nodesUnreachable": "Unreachable",
+  "nodesChain": "Chain proxy",
+  "nodesChainBody": "Choose an upstream node for this node's connection.",
+  "nodesChainDirect": "Direct connection",
+  "nodesChainDirectBody": "Do not use an upstream node",
+  "nodesChainNoCandidates": "No eligible upstream nodes",
   "rulesTitle": "Rules",
   "rulesHowRouted": "How traffic is routed",
   "rulesRoutingMode": "Routing mode",
@@ -246,6 +252,21 @@
   "settingsTunStack": "TUN stack",
   "settingsSystemProxy": "System HTTP proxy",
   "settingsSystemProxyBody": "Expose the local proxy; on Windows, also enable it in WinINet",
+  "settingsPerAppProxy": "Per-app proxy",
+  "settingsPerAppProxyBody": "Choose apps to bypass the VPN",
+  "settingsPerAppProxyApps": "Bypass apps",
+  "settingsPerAppProxyAppsBody": "{count, plural, =0{No apps selected} =1{1 app bypasses the VPN} other{{count} apps bypass the VPN}}",
+  "@settingsPerAppProxyAppsBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsPerAppProxySearch": "Search apps",
+  "settingsPerAppProxyNoApps": "No launchable apps found",
+  "settingsPerAppProxyNoMatches": "No matching apps",
+  "settingsPerAppProxyLoadFailed": "Could not load the app list",
   "settingsStrictRoute": "Strict route",
   "settingsStrictRouteBody": "Block traffic that tries to escape the tunnel",
   "settingsRouting": "Routing",
@@ -419,6 +440,42 @@
         "example": "/usr/bin/sing-box"
       }
     }
+  },
+  "noticeTunNeedsAdmin": "TUN mode needs administrator rights. Connect again and allow the prompt, or switch to system proxy mode.",
+  "@noticeTunNeedsAdmin": {
+    "description": "Windows: the same missing privilege as noticeTunUnprivileged, but the fix is the UAC prompt rather than granting a capability to a path."
+  },
+  "noticeElevationFailed": "Could not start with administrator rights. Try again, or switch to system proxy mode.",
+  "@noticeElevationFailed": {
+    "description": "Windows: UAC was accepted or could not be shown, but no elevated instance took over."
+  },
+  "noticeConfigRejected": "The proxy core rejected the generated configuration (exit {code}). Check the endpoint settings and custom rules.",
+  "@noticeConfigRejected": {
+    "description": "The engine's own output is deliberately not shown: a malformed endpoint can put credentials into that diagnostic.",
+    "placeholders": {
+      "code": {
+        "type": "String",
+        "example": "1"
+      }
+    }
+  },
+  "noticeConfigInvalid": "The generated configuration is unusable ({problem}). Check the endpoint settings and custom rules.",
+  "@noticeConfigInvalid": {
+    "description": "The app's own check, before any runtime sees the config. Unlike noticeConfigRejected the engine was never started, so the detail is the failed field's name — never its value, since this config holds the node credentials and the API token.",
+    "placeholders": {
+      "problem": {
+        "type": "String",
+        "example": "inbound listen_port is invalid"
+      }
+    }
+  },
+  "noticeEngineApiTimeout": "The proxy core started but never answered its control API. Another program may be holding the port.",
+  "@noticeEngineApiTimeout": {
+    "description": "Shown when the readiness probe runs out before the core's Clash API responds."
+  },
+  "noticeSystemProxyUnavailable": "The system proxy settings could not be changed, so nothing would be routed. Try TUN mode instead.",
+  "@noticeSystemProxyUnavailable": {
+    "description": "Desktop: the host-wide proxy takeover failed before the tunnel came up."
   },
   "platformUnsupported": "The {platform} runtime is not implemented yet. Config rendering and node management still work.",
   "@platformUnsupported": {

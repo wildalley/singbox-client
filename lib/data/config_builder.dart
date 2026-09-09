@@ -32,7 +32,11 @@ class ConfigBuilder {
   /// is the only control channel there is: the supervised `sing-box` has no
   /// command socket, so node switching, URL tests, traffic, and memory all go
   /// through this port.
-  static const clashApiPort = 9291;
+  ///
+  /// The preferred number, not a fixed one: [build] takes the port it renders,
+  /// and a session whose preferred pair is already held by another proxy client
+  /// gets whatever the OS hands out instead. See `port_allocator.dart`.
+  static const defaultClashApiPort = 9291;
 
   /// Loopback HTTP/SOCKS inbound, on 127.0.0.1 only.
   ///
@@ -42,7 +46,10 @@ class ConfigBuilder {
   /// second one is why the inbound is unconditional even in tun mode — the
   /// app's own package is excluded from the tunnel, so this is the only way
   /// anything the app fetches can leave through the selected node.
-  static const localProxyPort = 2080;
+  ///
+  /// Preferred rather than fixed, for the same reason as
+  /// [defaultClashApiPort]; the consumers above are told the rendered number.
+  static const defaultLocalProxyPort = 2080;
 
   /// Builds the full configuration.
   ///
@@ -59,6 +66,11 @@ class ConfigBuilder {
   /// unauthenticated listener lets any of them switch the user's outbound and
   /// read their connection list. Nothing may render this config without one.
   ///
+  /// [clashApiPort] and [localProxyPort] are the loopback ports to render, so a
+  /// start can move off a number another program already holds. They default to
+  /// the preferred pair, which keeps every render that does not care — the
+  /// config preview, the tests — on the documented numbers.
+  ///
   /// [tunOnly] overrides the platform check that ignores
   /// [AppSettings.proxyMode] on Android. For tests only; production leaves it
   /// null.
@@ -70,21 +82,58 @@ class ConfigBuilder {
     required String? selectedNodeId,
     required AppSettings settings,
     required String clashSecret,
+    int clashApiPort = defaultClashApiPort,
+    int localProxyPort = defaultLocalProxyPort,
     List<CustomRule> customRules = const [],
     String? ruleSetDir,
     bool? tunOnly,
+    bool? android,
   }) {
     // Android has one way in — VpnService hands over a tun and there is no
     // settings row to choose otherwise — so the stored mode does not apply
     // there. Injectable because the tests run on Linux and need both renders.
     final alwaysTun = tunOnly ?? Platform.isAndroid;
+    // Deliberately not folded into [alwaysTun]. A desktop tun render sets that
+    // too, and the per-app fields are Android-only — sing-box ignores them
+    // elsewhere, and rendering them on Linux would put a key in the config that
+    // nothing there can act on.
+    final isAndroid = android ?? Platform.isAndroid;
+    // Older state versions could retain the same endpoint more than once when
+    // a subscription contained duplicate entries. De-dupe here as a final
+    // boundary guard so a stale state file can never make sing-box reject the
+    // whole config for duplicate outbound tags.
+    final uniqueNodes = deduplicateProxyNodes(nodes);
     final nodeTags = <String, String>{};
     final outbounds = <Map<String, dynamic>>[];
 
-    for (final node in nodes) {
+    for (final node in uniqueNodes) {
       final tag = outboundTag(node);
       nodeTags[node.id] = tag;
-      outbounds.add(_withoutRejectedUtls(node.toOutbound(tag)));
+    }
+
+    for (final node in uniqueNodes) {
+      final tag = nodeTags[node.id]!;
+      final outbound = node.toOutbound(tag);
+      final detourId = node.detourNodeId;
+      if (detourId != null &&
+          detourId != node.id &&
+          nodeTags.containsKey(detourId) &&
+          !wouldCreateDetourCycle(uniqueNodes, node.id, detourId)) {
+        // Store the node id until all outbound tags have been indexed, then
+        // resolve it below. Display names can change; ids must not.
+        outbound['detour'] = detourId;
+      }
+      outbounds.add(_withoutRejectedUtls(outbound));
+    }
+
+    // Replace valid temporary node ids with sing-box outbound tags. A raw
+    // detour from an imported config is left intact when no app-level link was
+    // selected; this keeps older config imports lossless.
+    for (final outbound in outbounds) {
+      final detour = outbound['detour'];
+      if (detour is String && nodeTags.containsKey(detour)) {
+        outbound['detour'] = nodeTags[detour];
+      }
     }
 
     final proxyMembers = nodeTags.values.toList();
@@ -132,7 +181,17 @@ class ConfigBuilder {
         'timestamp': false,
       },
       'dns': _dns(settings),
-      'inbounds': _inbounds(settings, alwaysTun: alwaysTun),
+      'inbounds': _inbounds(
+        settings,
+        alwaysTun: alwaysTun,
+        localProxyPort: localProxyPort,
+        // The switch gates the list rather than clearing it: turning the feature
+        // off must not lose the user's selection, so the packages stay in
+        // settings and simply stop being rendered.
+        excludePackages: isAndroid && settings.perAppProxyEnabled
+            ? settings.perAppProxyBypass
+            : const [],
+      ),
       'outbounds': outbounds,
       'route': _route(settings, ruleSetDir, customRules),
       'experimental': {
@@ -245,6 +304,8 @@ class ConfigBuilder {
   static List<Map<String, dynamic>> _inbounds(
     AppSettings settings, {
     required bool alwaysTun,
+    required int localProxyPort,
+    required List<String> excludePackages,
   }) {
     final tun = alwaysTun || settings.proxyMode == ProxyMode.tun;
     return [
@@ -266,6 +327,18 @@ class ConfigBuilder {
           'strict_route': settings.strictRoute,
           'stack': settings.tunStack.tag,
           'endpoint_independent_nat': true,
+          // Per-app bypass. Android only, and only meaningful with auto_route,
+          // which is always on above: sing-box hands these to
+          // `VpnService.addDisallowedApplication`, so an excluded app's traffic
+          // never enters the tun device at all. That is the part a route rule
+          // cannot do — a `direct` rule still leaves the app able to see a VPN
+          // interface, which is what a bank app objects to.
+          //
+          // Rendered only when non-empty. An empty array is not the same as an
+          // absent one to the platform layer: `BoxPlatform` branches on
+          // `includePackage.isNotEmpty()`, and writing empty keys invites the
+          // same confusion here.
+          if (excludePackages.isNotEmpty) 'exclude_package': excludePackages,
           if (settings.systemProxy)
             'platform': {
               'http_proxy': {

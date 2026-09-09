@@ -85,6 +85,7 @@ class Importer {
     String text, {
     String? subscriptionId,
     bool viaLocalProxy = false,
+    int? localProxyPort,
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
@@ -105,6 +106,7 @@ class Importer {
         trimmed,
         subscriptionId: subscriptionId,
         viaLocalProxy: viaLocalProxy,
+        localProxyPort: localProxyPort,
       );
     }
 
@@ -206,6 +208,7 @@ class Importer {
     String url, {
     String? subscriptionId,
     bool viaLocalProxy = false,
+    int? localProxyPort,
   }) async {
     final Uri uri;
     try {
@@ -232,6 +235,7 @@ class Importer {
           uri,
           subscriptionId: subscriptionId,
           viaLocalProxy: throughTunnel,
+          localProxyPort: localProxyPort,
         );
       } on ImportException catch (error) {
         // Only a transport failure is worth the other path. A status code or an
@@ -251,6 +255,7 @@ class Importer {
     Uri uri, {
     String? subscriptionId,
     required bool viaLocalProxy,
+    int? localProxyPort,
   }) async {
     if (_disposed) {
       throw StateError('Importer is disposed');
@@ -266,6 +271,7 @@ class Importer {
             uri,
             subscriptionId: subscriptionId,
             viaLocalProxy: viaLocalProxy,
+            localProxyPort: localProxyPort,
           ),
         );
       }
@@ -276,6 +282,7 @@ class Importer {
         uri,
         subscriptionId: subscriptionId,
         viaLocalProxy: viaLocalProxy,
+        localProxyPort: localProxyPort,
         closeClient: true,
       );
     } finally {
@@ -323,11 +330,16 @@ class Importer {
     Uri uri, {
     String? subscriptionId,
     required bool viaLocalProxy,
+    int? localProxyPort,
     bool closeClient = false,
   }) async {
     if (closeClient) _activeClients.add(client);
     try {
-      routeHttp(client, viaLocalProxy: viaLocalProxy);
+      routeHttp(
+        client,
+        viaLocalProxy: viaLocalProxy,
+        localProxyPort: localProxyPort,
+      );
 
       late HttpClientResponse response;
       String body;
@@ -417,6 +429,7 @@ class Importer {
   Future<({Subscription subscription, List<ProxyNode> nodes})> refresh(
     Subscription subscription, {
     bool viaLocalProxy = false,
+    int? localProxyPort,
   }) async {
     final url = subscription.url;
     if (url == null || url.isEmpty) {
@@ -429,6 +442,7 @@ class Importer {
       url,
       subscriptionId: subscription.id,
       viaLocalProxy: viaLocalProxy,
+      localProxyPort: localProxyPort,
     );
     return (
       subscription: subscription.copyWith(

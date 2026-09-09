@@ -22,10 +22,12 @@ import '../data/config_builder.dart';
 import '../models/proxy_state.dart';
 import 'app_paths.dart';
 import 'config_facts.dart';
+import 'core_version.dart';
+import 'desktop_runtime.dart';
 import 'proxy_controller.dart';
 import 'windows_privileges.dart';
 
-class WindowsProxyController implements ProxyController {
+class WindowsProxyController extends DesktopRuntime implements ProxyController {
   WindowsProxyController({
     WindowsPrivileges? privileges,
     void Function()? exitProcess,
@@ -47,26 +49,19 @@ class WindowsProxyController implements ProxyController {
 
   final WindowsPrivileges _privileges;
   final void Function() _exitProcess;
-  final _stateController = StreamController<ProxyState>.broadcast();
-  final _trafficController = StreamController<ProxyTraffic>.broadcast();
-  final _logController = StreamController<ProxyLogEntry>.broadcast();
-  final _groupController = StreamController<ProxyGroup>.broadcast();
   final HttpClient _apiClient = HttpClient()..findProxy = _directProxy;
 
-  var _state = ProxyState.disconnected;
   Process? _process;
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
   Timer? _statsPollTimer;
   Timer? _groupsPollTimer;
   File? _configFile;
-  int _apiPort = ConfigBuilder.clashApiPort;
+  int _apiPort = ConfigBuilder.defaultClashApiPort;
   String? _apiSecret;
-  int _mixedPort = ConfigBuilder.localProxyPort;
+  int _mixedPort = ConfigBuilder.defaultLocalProxyPort;
   var _usesSystemProxy = false;
   var _usesTun = false;
-  var _stopping = false;
-  var _disposed = false;
   var _statsInFlight = false;
   var _groupsInFlight = false;
   int? _lastUploadTotal;
@@ -75,66 +70,53 @@ class WindowsProxyController implements ProxyController {
   var _downloadTotal = 0;
   var _connections = 0;
   var _memory = 0;
-  var _sessionId = 0;
-  int? _reportedErrorSession;
-  Future<void> _lifecycleTail = Future<void>.value();
 
   static String _directProxy(Uri _) => 'DIRECT';
-
-  @override
-  Stream<ProxyState> get states => _stateController.stream;
-
-  @override
-  Stream<ProxyTraffic> get traffic => _trafficController.stream;
-
-  @override
-  Stream<ProxyLogEntry> get logs => _logController.stream;
-
-  @override
-  Stream<ProxyGroup> get groups => _groupController.stream;
-
-  @override
-  ProxyState get currentState => _state;
 
   /// TUN mode requires administrator rights; sing-box carries its Wintun
   /// support in the Windows runtime.
   /// System proxy mode needs no elevation.
   @override
   Future<bool> requestPermission() async {
-    if (_disposed) return false;
+    if (isDisposed) return false;
     // Permission check happens in start() when we know which mode is requested.
     return true;
   }
 
   @override
   Future<void> start(String configJson) =>
-      _enqueueLifecycle(() => _startInternal(configJson));
+      enqueueLifecycle(() => _startInternal(configJson));
 
   Future<void> _startInternal(String configJson) async {
-    if (_disposed) throw StateError('Windows proxy controller is disposed');
+    if (isDisposed) throw StateError('Windows proxy controller is disposed');
     if (_process != null) {
       throw StateError('Windows proxy is already running');
     }
 
-    final session = ++_sessionId;
-    _reportedErrorSession = null;
-    _emitState(ProxyState(stage: ProxyStage.starting, sessionId: session));
-    _stopping = false;
+    final session = beginSession();
+    emitState(ProxyState(stage: ProxyStage.starting, sessionId: session));
+    isStopping = false;
     _lastUploadTotal = null;
     _lastDownloadTotal = null;
+    var systemProxyAvailable = true;
     try {
       // A stale marker means an earlier process died without running its
       // shutdown path. Restoring first prevents us from nesting our proxy on
       // top of a previous copy of the app's settings.
       await _restoreSystemProxy();
-      if (!_isCurrentSession(session)) return;
+      if (!isCurrentSession(session)) return;
 
       final core = _findCore();
-      if (core == null) {
-        throw StateError(
-          'Windows sing-box runtime is missing sing-box.exe. '
-          'Reinstall the Windows bundle or set SINGBOX_PATH for development.',
-        );
+      if (core == null) throw _problem(EngineProblem.missing);
+
+      // Before anything is written or started: an older core rejects the 1.12
+      // schema this app renders, and its own complaint is a schema dump. Null
+      // means the version could not be read at all, which is not grounds to
+      // refuse a start.
+      final version = await readCoreVersion(core.path);
+      if (!isCurrentSession(session)) return;
+      if (version != null && !versionAtLeast(version, singBoxMinimumVersion)) {
+        throw _problem(EngineProblem.tooOld, version.join('.'));
       }
 
       final config = _prepareConfig(configJson);
@@ -146,10 +128,10 @@ class WindowsProxyController implements ProxyController {
       if (_usesTun && !await _authorizeTun()) {
         return;
       }
-      if (!_isCurrentSession(session)) return;
+      if (!isCurrentSession(session)) return;
 
       final runtime = await _runtimeDirectory();
-      if (!_isCurrentSession(session)) return;
+      if (!isCurrentSession(session)) return;
       final file = File(
         '${runtime.path}${Platform.pathSeparator}config-$pid.json',
       );
@@ -161,15 +143,12 @@ class WindowsProxyController implements ProxyController {
         ['check', '-c', file.path],
         runInShell: false,
       ).timeout(_apiReadyTimeout);
-      if (!_isCurrentSession(session)) return;
+      if (!isCurrentSession(session)) return;
       if (check.exitCode != 0) {
-        // Do not surface stdout/stderr here: a malformed custom node can put
-        // credentials into an engine diagnostic. The full process output is
-        // still available in the log stream after a successful start.
-        throw StateError(
-          'Windows sing-box rejected the generated configuration '
-          '(exit ${check.exitCode}).',
-        );
+        // Only the exit code travels. A malformed custom node puts credentials
+        // into the engine's diagnostic, so stdout/stderr is deliberately
+        // dropped rather than shown or logged.
+        throw _problem(EngineProblem.configRejected, '${check.exitCode}');
       }
 
       final process = await Process.start(
@@ -182,30 +161,44 @@ class WindowsProxyController implements ProxyController {
         // OnDestroy still restores WinINet if the UI closes unexpectedly.
         mode: ProcessStartMode.normal,
       );
-      if (!_isCurrentSession(session)) {
+      if (!isCurrentSession(session)) {
         process.kill();
         return;
       }
       _process = process;
       _watchProcess(process, session: session);
       await _trackProcess(process.pid);
-      if (!_isCurrentSession(session) || !identical(_process, process)) return;
+      if (!isCurrentSession(session) || !identical(_process, process)) return;
 
       await _waitForApi(session: session);
-      if (_disposed || !identical(_process, process)) {
+      if (isDisposed || !identical(_process, process)) {
         throw StateError('Windows sing-box exited while starting.');
       }
-      if (_usesSystemProxy) await _enableSystemProxy(port: _mixedPort);
-      if (!_isCurrentSession(session) || !identical(_process, process)) return;
+      if (_usesSystemProxy) {
+        try {
+          await _enableSystemProxy(port: _mixedPort);
+        } on StateError catch (error) {
+          // The core and its loopback inbound are still healthy. Keep the
+          // session alive and expose the missing host-wide coverage instead of
+          // tearing down a usable local proxy.
+          if (EngineProblem.of(error.message.toString()) !=
+              EngineProblem.systemProxyUnavailable) {
+            rethrow;
+          }
+          systemProxyAvailable = false;
+          log('system proxy unavailable; local proxy remains available');
+        }
+      }
+      if (!isCurrentSession(session) || !identical(_process, process)) return;
       // The core can exit between the readiness probe and WinINet update. Do
       // not leave a dead loopback proxy behind in that race.
-      if (_disposed || !identical(_process, process)) {
+      if (isDisposed || !identical(_process, process)) {
         await _restoreSystemProxy();
         throw StateError('Windows sing-box exited while starting.');
       }
       _startPolling(session: session);
-      if (!_disposed && _sessionId == session && identical(_process, process)) {
-        _emitState(
+      if (!isDisposed && sessionId == session && identical(_process, process)) {
+        emitState(
           ProxyState(
             stage: ProxyStage.connected,
             since: DateTime.now(),
@@ -213,30 +206,32 @@ class WindowsProxyController implements ProxyController {
             coverage: _usesTun
                 ? ProxyCoverage.tun
                 : _usesSystemProxy
-                    ? ProxyCoverage.systemProxy
+                    ? systemProxyAvailable
+                        ? ProxyCoverage.systemProxy
+                        : ProxyCoverage.systemProxyUnavailable
                     : ProxyCoverage.localProxy,
           ),
         );
       }
     } on Object catch (error) {
-      await _stopInternal(emitState: false);
+      await _stopInternal(reportState: false);
       final message = _friendlyError(error);
-      _emitError(message, session: session);
+      emitError(message, session: session);
       rethrow;
     }
   }
 
   @override
-  Future<void> stop() => _enqueueLifecycle(_stopInternalPublic);
+  Future<void> stop() => enqueueLifecycle(_stopInternalPublic);
 
   Future<void> _stopInternalPublic() async {
-    if (_disposed) return;
-    _emitState(ProxyState(
+    if (isDisposed) return;
+    emitState(ProxyState(
       stage: ProxyStage.stopping,
-      sessionId: _sessionId,
+      sessionId: sessionId,
     ));
-    await _stopInternal(emitState: false);
-    if (!_disposed) _emitState(ProxyState(sessionId: _sessionId));
+    await _stopInternal(reportState: false);
+    if (!isDisposed) emitState(ProxyState(sessionId: sessionId));
   }
 
   @override
@@ -246,13 +241,13 @@ class WindowsProxyController implements ProxyController {
   }
 
   @override
-  Future<void> reload(String configJson) => _enqueueLifecycle(() async {
+  Future<void> reload(String configJson) => enqueueLifecycle(() async {
         if (_process == null) throw StateError('Windows proxy is not running');
         // The standalone binary's Clash API deliberately does not reload a
         // full config. Restarting keeps route/DNS changes deterministic and
         // ensures the previous WinINet settings are restored between
         // generations.
-        await _stopInternal(emitState: false);
+        await _stopInternal(reportState: false);
         await _startInternal(configJson);
       });
 
@@ -309,7 +304,7 @@ class WindowsProxyController implements ProxyController {
         delays[entry.key.toString()] = value.toInt();
       }
     }
-    _emitGroup(
+    emitGroup(
       ProxyGroup(tag: ConfigTags.proxy, selected: '', delays: delays),
     );
   }
@@ -339,9 +334,9 @@ class WindowsProxyController implements ProxyController {
     // its cache, and the _stopInternal inside it is what puts the WinINet proxy
     // settings back — the step dispose can start but not wait for.
     try {
-      await _enqueueLifecycle(() async {
+      await enqueueLifecycle(() async {
         if (_process != null) {
-          await _stopInternal(emitState: false);
+          await _stopInternal(reportState: false);
         } else {
           // No engine of ours running, but an earlier unclean exit may still
           // have left WinINet pointed at that port. Cheap to be sure.
@@ -358,9 +353,7 @@ class WindowsProxyController implements ProxyController {
 
   @override
   void dispose() {
-    if (_disposed) return;
-    _disposed = true;
-    _sessionId++;
+    if (!markDisposed()) return;
     _cancelPolling();
     final process = _process;
     _process = null;
@@ -378,35 +371,14 @@ class WindowsProxyController implements ProxyController {
     _stdoutSubscription?.cancel();
     _stderrSubscription?.cancel();
     _apiClient.close(force: true);
-    _stateController.close();
-    _trafficController.close();
-    _logController.close();
-    _groupController.close();
+    closeStreams();
   }
-
-  Future<void> _enqueueLifecycle(Future<void> Function() operation) {
-    final previous = _lifecycleTail;
-    final result = previous.then((_) => operation());
-    _lifecycleTail = result.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace __) {},
-    );
-    return result;
-  }
-
-  bool _isCurrentSession(int session) => !_disposed && _sessionId == session;
 
   // -------------------------------------------------------------- lifecycle
 
   void _watchProcess(Process process, {required int session}) {
-    _stdoutSubscription = process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen(_emitLog, onError: (_) {});
-    _stderrSubscription = process.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen(_emitLog, onError: (_) {});
+    _stdoutSubscription = pipeLines(process.stdout);
+    _stderrSubscription = pipeLines(process.stderr);
     unawaited(
       process.exitCode.then((code) => _processExited(
             process,
@@ -417,24 +389,24 @@ class WindowsProxyController implements ProxyController {
   }
 
   void _processExited(Process process, int code, {required int session}) {
-    if (!identical(_process, process) || _sessionId != session) return;
-    final stopping = _stopping;
+    if (!identical(_process, process) || sessionId != session) return;
+    final stopping = isStopping;
     _process = null;
     _cancelPolling();
     unawaited(_restoreSystemProxy());
     final file = _configFile;
     _configFile = null;
     unawaited(_deleteFile(file));
-    if (_disposed || stopping) return;
+    if (isDisposed || stopping) return;
 
-    _emitError(
+    emitError(
       'sing-box stopped unexpectedly (exit $code).',
       session: session,
     );
   }
 
-  Future<void> _stopInternal({required bool emitState}) async {
-    _stopping = true;
+  Future<void> _stopInternal({required bool reportState}) async {
+    isStopping = true;
     _cancelPolling();
     final process = _process;
     if (process != null) {
@@ -474,10 +446,10 @@ class WindowsProxyController implements ProxyController {
     final file = _configFile;
     _configFile = null;
     await _deleteFile(file);
-    if (emitState && !_disposed) {
-      _emitState(ProxyState(sessionId: _sessionId));
+    if (reportState && !isDisposed) {
+      emitState(ProxyState(sessionId: sessionId));
     }
-    _stopping = false;
+    isStopping = false;
   }
 
   void _startPolling({required int session}) {
@@ -507,9 +479,8 @@ class WindowsProxyController implements ProxyController {
 
   Future<void> _waitForApi({required int session}) async {
     final deadline = DateTime.now().add(_apiReadyTimeout);
-    Object? lastError;
-    while (!_disposed &&
-        _sessionId == session &&
+    while (!isDisposed &&
+        sessionId == session &&
         _process != null &&
         DateTime.now().isBefore(deadline)) {
       try {
@@ -519,19 +490,16 @@ class WindowsProxyController implements ProxyController {
           timeout: const Duration(milliseconds: 700),
         );
         return;
-      } on Object catch (error) {
-        lastError = error;
+      } on Object {
+        // Expected while the core is still binding its listener. Only running
+        // out of deadline is a failure, and it reports the same either way.
       }
       await Future<void>.delayed(const Duration(milliseconds: 150));
     }
-    if (_sessionId != session || _process == null) {
+    if (sessionId != session || _process == null) {
       throw StateError('Windows sing-box exited while starting.');
     }
-    throw StateError(
-      lastError == null
-          ? 'Windows sing-box did not expose its control API in time.'
-          : 'Windows sing-box did not become ready in time.',
-    );
+    throw _problem(EngineProblem.apiTimeout);
   }
 
   Future<String> _apiRequest(
@@ -580,8 +548,8 @@ class WindowsProxyController implements ProxyController {
   }
 
   Future<void> _pollStats({required int session}) async {
-    if (_disposed ||
-        _sessionId != session ||
+    if (isDisposed ||
+        sessionId != session ||
         _process == null ||
         _statsInFlight) {
       return;
@@ -590,7 +558,7 @@ class WindowsProxyController implements ProxyController {
     try {
       final body = await _apiRequest('GET', '/connections');
       final decoded = jsonDecode(body);
-      if (decoded is! Map || _disposed || _sessionId != session) return;
+      if (decoded is! Map || isDisposed || sessionId != session) return;
       final upload = _intValue(decoded['uploadTotal']);
       final download = _intValue(decoded['downloadTotal']);
       final uploadDelta = _lastUploadTotal == null
@@ -607,19 +575,15 @@ class WindowsProxyController implements ProxyController {
           ? (decoded['connections'] as List).length
           : 0;
       _memory = _intValue(decoded['memory']);
-      if (!_trafficController.isClosed) {
-        _trafficController.add(
-          ProxyTraffic(
-            uplink: uploadDelta,
-            downlink: downloadDelta,
-            uplinkTotal: _uploadTotal,
-            downlinkTotal: _downloadTotal,
-            connectionsIn: _connections,
-            connectionsOut: _connections,
-            memory: _memory,
-          ),
-        );
-      }
+      emitTraffic(ProxyTraffic(
+        uplink: uploadDelta,
+        downlink: downloadDelta,
+        uplinkTotal: _uploadTotal,
+        downlinkTotal: _downloadTotal,
+        connectionsIn: _connections,
+        connectionsOut: _connections,
+        memory: _memory,
+      ));
     } on Object {
       // A stopped process and a closing API socket are expected during
       // disconnect. Avoid turning a one-second poll into a log flood.
@@ -629,8 +593,8 @@ class WindowsProxyController implements ProxyController {
   }
 
   Future<void> _pollGroups({required int session}) async {
-    if (_disposed ||
-        _sessionId != session ||
+    if (isDisposed ||
+        sessionId != session ||
         _process == null ||
         _groupsInFlight) {
       return;
@@ -641,8 +605,8 @@ class WindowsProxyController implements ProxyController {
       final decoded = jsonDecode(body);
       if (decoded is! Map ||
           decoded['proxies'] is! Map ||
-          _disposed ||
-          _sessionId != session) {
+          isDisposed ||
+          sessionId != session) {
         return;
       }
       final proxies = decoded['proxies'] as Map;
@@ -670,7 +634,7 @@ class WindowsProxyController implements ProxyController {
             if (delay > 0) delays[member.toString()] = delay;
           }
         }
-        _emitGroup(
+        emitGroup(
           ProxyGroup(
             tag: tag,
             selected: info['now']?.toString() ?? '',
@@ -686,7 +650,9 @@ class WindowsProxyController implements ProxyController {
   }
 
   void _requireRunning() {
-    if (_disposed || _process == null || _state.stage != ProxyStage.connected) {
+    if (isDisposed ||
+        _process == null ||
+        currentState.stage != ProxyStage.connected) {
       throw StateError('Windows proxy is not connected');
     }
   }
@@ -744,7 +710,7 @@ class WindowsProxyController implements ProxyController {
         'type': 'mixed',
         'tag': 'mixed-in',
         'listen': '127.0.0.1',
-        'listen_port': ConfigBuilder.localProxyPort,
+        'listen_port': ConfigBuilder.defaultLocalProxyPort,
       });
     }
     config['inbounds'] = inbounds;
@@ -806,43 +772,36 @@ class WindowsProxyController implements ProxyController {
   }
 
   Future<bool> _authorizeTun() async {
-    _emitState(ProxyState(
+    emitState(ProxyState(
       stage: ProxyStage.requestingPermission,
-      sessionId: _sessionId,
+      sessionId: sessionId,
     ));
 
     final status = await _privileges.requestTunPrivileges();
 
     switch (status) {
       case TunAuthorizationStatus.granted:
-        _emitState(ProxyState(
+        emitState(ProxyState(
           stage: ProxyStage.starting,
-          sessionId: _sessionId,
+          sessionId: sessionId,
         ));
         return true;
 
       case TunAuthorizationStatus.declined:
-        _emitState(ProxyState(
-          stage: ProxyStage.error,
-          message: 'TUN mode requires administrator rights. '
-              'Please allow the UAC prompt or switch to system proxy mode.',
-          sessionId: _sessionId,
-        ));
+        // No detail: here the fix is the UAC prompt, not a capability on a
+        // path, so naming the binary would only be noise. See noticeText.
+        fail(EngineProblem.unprivileged);
         return false;
 
       case TunAuthorizationStatus.relaunching:
         // The elevated child waits for this process to disappear, then claims
         // the single-instance socket and starts the same persisted settings.
-        _emitState(ProxyState(sessionId: _sessionId));
+        emitState(ProxyState(sessionId: sessionId));
         unawaited(_exitAfterElevation());
         return false;
 
       case TunAuthorizationStatus.failed:
-        _emitState(ProxyState(
-          stage: ProxyStage.error,
-          message: 'Failed to obtain administrator rights for TUN mode.',
-          sessionId: _sessionId,
-        ));
+        fail(EngineProblem.elevationFailed);
         return false;
     }
   }
@@ -851,7 +810,7 @@ class WindowsProxyController implements ProxyController {
     // Let the successful MethodChannel reply reach the runner before
     // terminating this process. The child has a bounded socket handoff wait.
     await Future<void>.delayed(const Duration(milliseconds: 100));
-    if (!_disposed) _exitProcess();
+    if (!isDisposed) _exitProcess();
   }
 
   Future<void> _enableSystemProxy({required int port}) async {
@@ -860,7 +819,7 @@ class WindowsProxyController implements ProxyController {
         'server': '127.0.0.1:$port',
       });
     } on Object {
-      throw StateError('Windows system proxy could not be enabled.');
+      throw _problem(EngineProblem.systemProxyUnavailable);
     }
   }
 
@@ -881,29 +840,14 @@ class WindowsProxyController implements ProxyController {
     }
   }
 
-  void _emitState(ProxyState state) {
-    _state = state;
-    if (!_stateController.isClosed) _stateController.add(state);
-  }
-
-  void _emitError(String message, {required int session}) {
-    if (_reportedErrorSession == session) return;
-    _reportedErrorSession = session;
-    _emitState(ProxyState(
-      stage: ProxyStage.error,
-      message: message,
-      sessionId: session,
-    ));
-  }
-
-  void _emitLog(String line) {
-    if (_disposed || _logController.isClosed || line.isEmpty) return;
-    _logController.add(ProxyLogEntry(message: line, at: DateTime.now()));
-  }
-
-  void _emitGroup(ProxyGroup group) {
-    if (!_disposed && !_groupController.isClosed) _groupController.add(group);
-  }
+  /// A classified failure as a throwable, for the paths inside `_startInternal`
+  /// that unwind through its catch rather than reporting directly.
+  ///
+  /// [_friendlyError] passes a [StateError]'s message straight to [emitError],
+  /// so the encoded marker survives the trip and the UI still localises it. The
+  /// reporting counterpart is the base class's `fail`.
+  static StateError _problem(EngineProblem problem, [String? detail]) =>
+      StateError(problem.encode(detail));
 
   static int _intValue(Object? value) => switch (value) {
         int item => item,

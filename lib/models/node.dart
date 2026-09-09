@@ -53,6 +53,7 @@ class ProxyNode {
     this.latencyMs,
     this.subscriptionId,
     this.favorite = false,
+    this.detourNodeId,
   });
 
   final String id;
@@ -68,6 +69,13 @@ class ProxyNode {
   final String? subscriptionId;
   final bool favorite;
 
+  /// The node whose connection should carry this node's dial.
+  ///
+  /// This is the app-level node id, not a sing-box outbound tag. The config
+  /// builder resolves it after every node has a stable tag, so a chain survives
+  /// names changing during a subscription refresh.
+  final String? detourNodeId;
+
   static const unreachableLatency = -1;
 
   bool get isUnreachable => latencyMs == unreachableLatency;
@@ -79,6 +87,8 @@ class ProxyNode {
     bool clearLatency = false,
     bool? favorite,
     String? subscriptionId,
+    String? detourNodeId,
+    bool clearDetour = false,
   }) {
     return ProxyNode(
       id: id,
@@ -90,6 +100,7 @@ class ProxyNode {
       latencyMs: clearLatency ? null : (latencyMs ?? this.latencyMs),
       subscriptionId: subscriptionId ?? this.subscriptionId,
       favorite: favorite ?? this.favorite,
+      detourNodeId: clearDetour ? null : (detourNodeId ?? this.detourNodeId),
     );
   }
 
@@ -118,6 +129,7 @@ class ProxyNode {
         if (latencyMs != null) 'latency_ms': latencyMs,
         if (subscriptionId != null) 'subscription_id': subscriptionId,
         'favorite': favorite,
+        if (detourNodeId != null) 'detour_node_id': detourNodeId,
       };
 
   static ProxyNode fromJson(Map<String, dynamic> json) => ProxyNode(
@@ -131,6 +143,7 @@ class ProxyNode {
         latencyMs: (json['latency_ms'] as num?)?.toInt(),
         subscriptionId: json['subscription_id'] as String?,
         favorite: json['favorite'] as bool? ?? false,
+        detourNodeId: json['detour_node_id'] as String?,
       );
 
   /// Short location hint derived from the node name, used in list rows.
@@ -153,6 +166,43 @@ class ProxyNode {
   /// token. Null is a real answer: showing nothing beats showing the wrong
   /// country, and the row falls back to a neutral icon.
   String? get regionCode => _flagRegion(name) ?? _namedRegion(name);
+}
+
+/// Removes duplicate endpoint records while preserving their first appearance.
+///
+/// Node ids are derived from the endpoint credentials, so the same server can
+/// legitimately occur twice in a downloaded list. It is still one app node:
+/// keeping both records makes selection ambiguous and produces duplicate
+/// sing-box outbound tags.
+List<ProxyNode> deduplicateProxyNodes(Iterable<ProxyNode> nodes) {
+  final seen = <String>{};
+  return [
+    for (final node in nodes)
+      if (seen.add(node.id)) node
+  ];
+}
+
+/// Whether assigning [detourNodeId] to [nodeId] would make a loop.
+///
+/// A malformed persisted graph is treated as unsafe too: once a loop is found,
+/// no new edge is allowed to extend it.
+bool wouldCreateDetourCycle(
+  Iterable<ProxyNode> nodes,
+  String nodeId,
+  String? detourNodeId,
+) {
+  if (detourNodeId == null) return false;
+  if (detourNodeId == nodeId) return true;
+
+  final byId = {for (final node in nodes) node.id: node};
+  final visited = <String>{};
+  String? current = detourNodeId;
+  while (current != null) {
+    if (current == nodeId) return true;
+    if (!visited.add(current)) return true;
+    current = byId[current]?.detourNodeId;
+  }
+  return false;
 }
 
 /// Decodes a flag emoji: two regional indicator symbols map to the letters of

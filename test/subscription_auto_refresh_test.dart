@@ -31,6 +31,7 @@ class _FakeImporter extends Importer {
   Future<({Subscription subscription, List<ProxyNode> nodes})> refresh(
     Subscription subscription, {
     bool viaLocalProxy = false,
+    int? localProxyPort,
   }) async {
     refreshed.add(subscription.id);
     if (error != null) throw error!;

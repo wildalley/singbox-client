@@ -180,6 +180,11 @@ class MainActivity : FlutterActivity() {
             // files the config points at live beside the engine's own state.
             "dataDir" -> result.success(filesDir.absolutePath)
 
+            // The picker only needs user-launchable apps. This keeps the query
+            // useful on Android 11+ without requesting the restricted
+            // QUERY_ALL_PACKAGES permission.
+            "installedApps" -> result.success(installedApps())
+
             "version" -> result.success(
                 runCatching { io.nekohasekai.libbox.Libbox.version() }
                     .getOrDefault("unknown")
@@ -212,6 +217,28 @@ class MainActivity : FlutterActivity() {
         } else {
             startService(intent)
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedApps(): List<Map<String, String>> {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        return packageManager.queryIntentActivities(launcherIntent, 0)
+            .asSequence()
+            .mapNotNull { resolveInfo ->
+                val appInfo = resolveInfo.activityInfo?.applicationInfo
+                    ?: return@mapNotNull null
+                if (appInfo.packageName == packageName) return@mapNotNull null
+                val label = appInfo.loadLabel(packageManager).toString().trim()
+                mapOf(
+                    "packageName" to appInfo.packageName,
+                    "label" to if (label.isEmpty()) appInfo.packageName else label,
+                )
+            }
+            .distinctBy { it["packageName"] }
+            .sortedWith(compareBy({ it["label"] }, { it["packageName"] }))
+            .toList()
     }
 
     @Deprecated("Matches FlutterActivity's own onActivityResult contract")

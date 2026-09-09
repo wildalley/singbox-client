@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:singbox_client/data/config_builder.dart';
 import 'package:singbox_client/data/latency_tester.dart';
+import 'package:singbox_client/data/port_allocator.dart';
 import 'package:singbox_client/data/storage.dart';
 import 'package:singbox_client/main.dart';
 import 'package:singbox_client/models/node.dart';
@@ -177,6 +178,23 @@ class FakeLatencyTester extends LatencyTester {
       latencies[node.id] ?? ProxyNode.unreachableLatency;
 }
 
+/// Hands back the preferred pair without touching a socket.
+///
+/// The real allocator binds loopback to find out what is free, and a genuine
+/// `ServerSocket.bind` awaited inside the test binding's fake-async zone never
+/// completes — so a test that taps Connect would hang for the ten-minute timeout
+/// instead of failing. Every test that connects therefore gets this, and the
+/// binding behaviour itself is covered against real sockets in
+/// `port_allocator_test.dart`.
+Future<LoopbackPorts> fakePortAllocator({
+  required int preferredClashApiPort,
+  required int preferredLocalProxyPort,
+}) async =>
+    (
+      clashApiPort: preferredClashApiPort,
+      localProxyPort: preferredLocalProxyPort,
+    );
+
 Future<({AppState state, FakeProxyController controller})> buildState({
   List<ProxyNode> nodes = const [],
   LatencyTester? latencyTester,
@@ -192,6 +210,7 @@ Future<({AppState state, FakeProxyController controller})> buildState({
       controller: controller,
       latencyTester: latencyTester,
       urlTestTimeout: urlTestTimeout,
+      portAllocator: fakePortAllocator,
     ),
     controller: controller,
   );

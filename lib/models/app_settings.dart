@@ -171,8 +171,13 @@ class AppSettings {
   ///
   /// Presentation and shell preferences deliberately stay out of this check:
   /// changing a theme, language, or close-to-tray behaviour must not interrupt
-  /// an otherwise healthy tunnel. The per-app fields are retained for storage,
-  /// but are not rendered yet, so they do not trigger a reload either.
+  /// an otherwise healthy tunnel.
+  ///
+  /// The per-app fields *are* in it, because they now render: `exclude_package`
+  /// reaches the TUN inbound, and `VpnService` decides which applications are in
+  /// the tunnel when the interface is built — so a change to either one only
+  /// takes effect on a restart. Leaving them out was what made the setting look
+  /// applied while nothing moved.
   bool hasSameRuntimeConfig(AppSettings other) =>
       routingMode == other.routingMode &&
       proxyMode == other.proxyMode &&
@@ -186,7 +191,22 @@ class AppSettings {
       fakeIp == other.fakeIp &&
       tunStack == other.tunStack &&
       systemProxy == other.systemProxy &&
-      logLevel == other.logLevel;
+      logLevel == other.logLevel &&
+      perAppProxyEnabled == other.perAppProxyEnabled &&
+      _sameStrings(perAppProxyBypass, other.perAppProxyBypass);
+
+  /// Element-wise comparison, since `List ==` is identity in Dart.
+  ///
+  /// Order matters here as well as membership. Two lists holding the same
+  /// packages in a different order render different JSON, and re-rendering is
+  /// cheap next to guessing wrong about whether a restart is needed.
+  static bool _sameStrings(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   /// sing-box DNS server `type` derived from [dnsRemote]'s scheme.
   String get remoteDnsType => switch (Uri.tryParse(dnsRemote)?.scheme) {

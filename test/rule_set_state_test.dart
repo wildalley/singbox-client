@@ -18,7 +18,7 @@ import 'package:singbox_client/data/rule_sets.dart';
 import 'package:singbox_client/data/storage.dart';
 import 'package:singbox_client/state/app_state.dart';
 
-import 'widget_test.dart' show FakeProxyController, node;
+import 'widget_test.dart' show FakeProxyController, fakePortAllocator, node;
 
 /// Stands in for the download. Records the calls and never touches the network.
 ///
@@ -39,7 +39,11 @@ class _FakeUpdater extends RuleSetUpdater {
   var hang = false;
 
   @override
-  Future<RuleSetInstall> update(Directory dir, {bool viaLocalProxy = false}) {
+  Future<RuleSetInstall> update(
+    Directory dir, {
+    bool viaLocalProxy = false,
+    int? localProxyPort,
+  }) {
     calls.add((dir: dir.path, viaLocalProxy: viaLocalProxy));
     if (hang) {
       final completer = Completer<RuleSetInstall>();
@@ -93,6 +97,7 @@ void main() {
       controller: controller,
       ruleSetUpdater: updater,
       ruleSetDir: ruleSetDir,
+      portAllocator: fakePortAllocator,
     );
     addTearDown(state.dispose);
     // The constructor reads the install record off disk.

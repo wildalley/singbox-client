@@ -327,10 +327,10 @@ void main() {
       try {
         inbound = await ServerSocket.bind(
           InternetAddress.loopbackIPv4,
-          ConfigBuilder.localProxyPort,
+          ConfigBuilder.defaultLocalProxyPort,
         );
       } on SocketException {
-        markTestSkipped('port ${ConfigBuilder.localProxyPort} is in use');
+        markTestSkipped('port ${ConfigBuilder.defaultLocalProxyPort} is in use');
         return;
       }
       addTearDown(() => inbound.close());
